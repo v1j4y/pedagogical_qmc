@@ -1,0 +1,5 @@
+* QMC methods
+
+** Bibliography
+
+   - Monte-Carlo Pedagogique - Michael Caffarel, Roland Assaraf

@@ -1,0 +1,48 @@
+#+TITLE: Setup
+
+#+BEGIN_SRC julia :results output
+println(9)
+println("Hello")
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+9
+Hello
+#+end_example
+
+#+begin_src emacs-lisp
+(let ((default-directory "/tmp/"))
+  (with-temp-buffer
+    (process-file "jupyter" nil t nil "kernelspec" "list")
+    (buffer-string)))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Available kernels:
+  julia-1.0    /home/vijay/.local/share/jupyter/kernels/julia-1.0
+  python3      /usr/share/jupyter/kernels/python3
+#+end_example
+
+#+BEGIN_SRC jupyter-python :session p1
+print(8)
+print("Hello")
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+8
+Hello
+#+end_example
+
+#+BEGIN_SRC jupyter-julia :session j1
+println(8)
+println("Hello")
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+8
+Hello
+#+end_example

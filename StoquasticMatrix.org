@@ -1,10 +1,9 @@
-
+* Part I
 
 * 2 by 2 Matrix 
 
 ** Simple power method 
 
-A simple application of the power method on 
-an arbitrary stoquastic matrix (i.e. all extradiagonal elements of the same sign)
-results in the convergence to the ground state eigenvector.
-
+A simple application of the power method on  an arbitrary stoquastic matrix
+(i.e. all extradiagonal elements of the same sign) results in the convergence to
+the ground state eigenvector.

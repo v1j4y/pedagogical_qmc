@@ -1,13 +1,23 @@
 #+TITLE: Setup
 
+#+begin_src python :results output
+import sys
+print(8)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+8
+#+end_example
+
 #+BEGIN_SRC julia :results output
-println(9)
+println(8)
 println("Hello")
 #+END_SRC
 
 #+RESULTS:
 #+begin_example
-9
+8
 Hello
 #+end_example
 
@@ -26,23 +36,35 @@ Available kernels:
 #+end_example
 
 #+BEGIN_SRC jupyter-python :session p1
-print(8)
+print(9)
 print("Hello")
 #+END_SRC
 
 #+RESULTS:
 #+begin_example
-8
+9
 Hello
 #+end_example
 
 #+BEGIN_SRC jupyter-julia :session j1
-println(8)
+println(9)
 println("Hello")
+name="whoami";
 #+END_SRC
 
 #+RESULTS:
 #+begin_example
-8
+9
 Hello
+#+end_example
+
+#+BEGIN_SRC jupyter-julia :session j1
+println(2)
+println("Hello ",name)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+2
+Hello whoami
 #+end_example

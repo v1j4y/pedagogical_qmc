@@ -1,0 +1,139 @@
+% Created 2020-12-25 ven. 18:44
+% Intended LaTeX compiler: pdflatex
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{tabularx}
+\author{Vijay Gopal Chilkuri}
+\date{\today}
+\title{QMC Part I}
+\hypersetup{
+ pdfauthor={Vijay Gopal Chilkuri},
+ pdftitle={QMC Part I},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 27.1 (Org mode 9.5)}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+
+\section{Part I}
+\label{sec:org010db07}
+
+\section{Simple power method}
+\label{sec:org1c5e2e4}
+
+\subsection{2x2 Matrix}
+\label{sec:org5199702}
+
+Consider a Hamiltonian whose matrix form is shown in Eq:\ref{mat2x2}. This Hamiltonian
+has two eigenvectors and two eigenvalues. Let the two eigenvectors be
+\(\mathbf{u_0}\) and \(\mathbf{u_1}\). Then consider \(\mathbf{\nu}\) any arbitrary trial vector which is
+not an eigenvector of Eq:\ref{mat2x2} but belongs to the 2x2 space. Any such trial vector
+can always be written in the form shown in Eq:\ref{vecbasis}.
+
+\begin{equation}
+\begin{bmatrix}
+ v_0 & -t \\
+ -t & v_1 \\
+\end{bmatrix}
+\label{mat2x2}
+\end{equation}
+
+\begin{equation}
+\label{vecbasis}
+\mathbf{\nu} = c_0 \mathbf{u_0} + c_1 \mathbf{u_1}
+\end{equation}
+
+The key idea is the realization that the ground state of the Hamiltonian \ref{mat2x2}
+given by \(\mathbf{u_0}\) can be extracted from \(\mathbf{\nu}\) by the repeated
+application of a filter \(G(H)\). This filter systematically purifies
+\(\mathbf{\nu}\) to obtain the ground state \(\mathbf{u_0}\) provided \(c_0 > 0\),
+i.e. the trial vector \(\mathbf{\nu}\) has a non-zero projection on the
+ground state.
+
+The form of the filter is inspired from the power method where a successive
+application of the Hamiltonian followed by the substraction of the residual
+leads to a convergent series of vectors. The limiting value of this convergent
+series is one of the extremal eigenvectors of the Hamiltonian. Following this, our filter \(G(H)\) can be written as \ref{filter}
+
+\begin{equation}
+\label{filter}
+\hat{G}(H) = \left ( \mathbf{1} - \tau (\hat{H} - E_T\mathbf{1}) \right)
+\end{equation}
+
+The convergent series of vectors is then \(\left\{ \nu^{(0)},  \nu^{(1)},\
+\nu^{(2)},\dots,\nu^{(n)}\right\}\) where \(\nu^{(k)}\) is given by \ref{applyg}
+
+\begin{equation}
+\label{applyg}
+\nu^{(k+1)} = \hat{G}(H)\nu^{(k)}
+\end{equation}
+
+Using Eq:\ref{vecbasis}, Eq:\ref{applyg} can be written as \ref{applyg2}
+
+\begin{equation}
+\label{applyg2}
+\nu^{(k+1)} = c_0 (1-\tau(E_0-E_T))^{(k)}\mathbf{u_0} + c_1 (1-\tau(E_1-E_T))^{(k)}\mathbf{u_1}
+\end{equation}
+
+From Eq:\ref{applyg2}, we can see that a repeated application of the filter Eq:\ref{filter}
+with a trial guess energy \(E_T\) will result in the series converging
+geometrically to either \(E_0\) or \(E_1\) depending on the choice of \(E_T\).
+
+Here we shall show an example using the Hamiltonian given in Eq:\ref{mat2x2}. In the
+case of a 2x2 Hamiltonian, and any general trial vector \([c_0,c_1]\), the
+recursion relations for the calculation of \(c^{(k)}_0\) and \(c^{(k)}_1\) are
+straight forward and given by Eq:\ref{receqn1},\ref{receqn2}.
+
+\begin{equation}
+\label{receqn1}
+c^{(k+1)}_0 =  \left(\mathbf{1}-\tau\left(\nu_0 - E_T\right)\right)c^{(k)}_0 + \tau t c^{(k)}_1
+\end{equation}
+
+\begin{equation}
+\label{receqn2}
+c^{(k)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1
+\end{equation}
+
+These are the working equations. As an example, we begin with the initial set of
+values given as follows:
+
+\begin{verbatim}
+\nu_0=1
+\nu_1=2
+t=1
+\tau=0.1
+E_T=3
+c_0=0.7071067811865475
+c_1=0.7071067811865475
+\end{verbatim}
+
+The iteration can begin with these as starting values. The output is given in
+the table below.
+
+\begin{verbatim}
+10	0.8325345415688012	0.5539731375209688	0.384482692919926
+20	0.8481318105729733	0.5297852696085559	0.3820169520382197
+30	0.8502938016675892	0.5263083229872757	0.38196704124139036
+40	0.8506000682828394	0.5258132024181487	0.38196603207543756
+50	0.8506435939378749	0.5257427851073715	0.3819660116711711
+60	0.8506497825205341	0.5257327719457557	0.3819660112586187
+70	0.8506506624858821	0.5257313481354616	0.3819660112502773
+80	0.8506507876108551	0.5257311456790742	0.38196601125010865
+\end{verbatim}
+\end{document}

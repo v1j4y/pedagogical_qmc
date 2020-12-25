@@ -11,13 +11,13 @@ print(8)
 #+end_example
 
 #+BEGIN_SRC julia :results output
-println(8)
+println(VERSION)
 println("Hello")
 #+END_SRC
 
 #+RESULTS:
 #+begin_example
-8
+1.5.3
 Hello
 #+end_example
 
@@ -32,31 +32,45 @@ Hello
 #+begin_example
 Available kernels:
   julia-1.0    /home/vijay/.local/share/jupyter/kernels/julia-1.0
+  julia-1.5    /home/vijay/.local/share/jupyter/kernels/julia-1.5
   python3      /usr/share/jupyter/kernels/python3
 #+end_example
 
-#+BEGIN_SRC jupyter-python :session p1
+#+NAME: mat
+| 1 | 2 |
+
+#+BEGIN_SRC jupyter-python :session p1 :var data=mat
 print(9)
 print("Hello")
+print(data)
 #+END_SRC
 
 #+RESULTS:
 #+begin_example
 9
 Hello
+[[1, 2]]
 #+end_example
 
-#+BEGIN_SRC jupyter-julia :session j1
-println(9)
+#+BEGIN_SRC jupyter-julia :session j1 :var data=mat
+using DelimitedFiles
+println(VERSION)
 println("Hello")
 name="whoami";
 #+END_SRC
 
 #+RESULTS:
+:RESULTS:
+# [goto error]
 #+begin_example
-9
-Hello
+UndefVarError: readcsv not defined
+
+Stacktrace:
+ [1] top-level scope at In[5]:1
+ [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
 #+end_example
+:END:
+
 
 #+BEGIN_SRC jupyter-julia :session j1
 println(2)

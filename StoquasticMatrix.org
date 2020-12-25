@@ -1,9 +1,36 @@
+# -*- mode:org -*-
+#+TITLE: QMC Part I
+#+AUTHOR: Vijay Gopal Chilkuri
+#+EMAIL: vijay.gopal.c@gmail.com
+#+OPTIONS: toc:t
+#+LATEX_CLASS: article
+
 * Part I
 
 * 2 by 2 Matrix 
 
 ** Simple power method 
 
-A simple application of the power method on  an arbitrary stoquastic matrix
+#+NAME: mat2x2
+#+tblname: mat2x2
+| v0 | -t |
+| -t | v1 |
+
+A simple application of the power method on a stoquastic matrix [[mat2x2]]
 (i.e. all extradiagonal elements of the same sign) results in the convergence to
 the ground state eigenvector.
+
+#+BEGIN_SRC julia :results output :eval noexport
+data=[[1,2],[3,4]]
+println("hello")
+println(data[1],data[2])
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+2-element Array{Array{Int32,1},1}:
+ [1, 2]
+ [3, 4]
+hello
+[1, 2][3, 4]
+#+end_example

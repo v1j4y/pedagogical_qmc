@@ -4,33 +4,154 @@
 #+EMAIL: vijay.gopal.c@gmail.com
 #+OPTIONS: toc:t
 #+LATEX_CLASS: article
+#+LATEX_HEADER: \usepackage{tabularx}
 
 * Part I
 
-* 2 by 2 Matrix 
+* Simple power method
 
-** Simple power method 
+** 2x2 Matrix
+
+Consider a Hamiltonian whose matrix form is shown in Eq:[[mat2x2]]. This Hamiltonian
+has two eigenvectors and two eigenvalues. Let the two eigenvectors be
+\(\mathbf{u_0}\) and \(\mathbf{u_1}\). Then consider \(\mathbf{\nu}\) any arbitrary trial vector which is
+not an eigenvector of Eq:[[mat2x2]] but belongs to the 2x2 space. Any such trial vector
+can always be written in the form shown in Eq:[[vecbasis]].
 
 #+NAME: mat2x2
+#+ATTR_LATEX: :mode math :environment bmatrix :align cc
 #+tblname: mat2x2
-| v0 | -t |
-| -t | v1 |
+| v_0 | -t  |
+| -t  | v_1 |
 
-A simple application of the power method on a stoquastic matrix [[mat2x2]]
-(i.e. all extradiagonal elements of the same sign) results in the convergence to
-the ground state eigenvector.
+#+NAME: vecbasis
+\begin{equation}
+\mathbf{\nu} = c_0 \mathbf{u_0} + c_1 \mathbf{u_1}
+\end{equation}
 
-#+BEGIN_SRC julia :results output :eval noexport
-data=[[1,2],[3,4]]
-println("hello")
-println(data[1],data[2])
+The key idea is the realization that the ground state of the Hamiltonian [[mat2x2]]
+given by \(\mathbf{u_0}\) can be extracted from \(\mathbf{\nu}\) by the repeated
+application of a filter \( G(H) \). This filter systematically purifies
+\(\mathbf{\nu}\) to obtain the ground state \(\mathbf{u_0}\) provided \(c_0 > 0\),
+i.e. the trial vector \(\mathbf{\nu}\) has a non-zero projection on the
+ground state.
+
+The form of the filter is inspired from the power method where a successive
+application of the Hamiltonian followed by the substraction of the residual
+leads to a convergent series of vectors. The limiting value of this convergent
+series is one of the extremal eigenvectors of the Hamiltonian. Following this, our filter \(G(H)\) can be written as [[filter]]
+
+#+NAME: filter
+\begin{equation}
+\hat{G}(H) = \left ( \mathbf{1} - \tau (\hat{H} - E_T\mathbf{1}) \right)
+\end{equation}
+
+The convergent series of vectors is then \(\left\{ \nu^{(0)},  \nu^{(1)},\
+\nu^{(2)},\dots,\nu^{(n)}\right\}\) where \(\nu^{(k)}\) is given by [[applyg]]
+
+#+NAME: applyg
+\begin{equation}
+\nu^{(k+1)} = \hat{G}(H)\nu^{(k)}
+\end{equation}
+
+Using Eq:[[vecbasis]], Eq:[[applyg]] can be written as [[applyg2]]
+
+#+NAME: applyg2
+\begin{equation}
+\nu^{(k+1)} = c_0 (1-\tau(E_0-E_T))^{(k)}\mathbf{u_0} + c_1 (1-\tau(E_1-E_T))^{(k)}\mathbf{u_1}
+\end{equation}
+
+From Eq:[[applyg2]], we can see that a repeated application of the filter Eq:[[filter]]
+with a trial guess energy \(E_T\) will result in the series converging
+geometrically to either \(E_0\) or \(E_1\) depending on the choice of \(E_T\).
+
+Here we shall show an example using the Hamiltonian given in Eq:[[mat2x2]]. In the
+case of a 2x2 Hamiltonian, and any general trial vector \([c_0,c_1]\), the
+recursion relations for the calculation of \(c^{(k)}_0\) and \(c^{(k)}_1\) are
+straight forward and given by Eq:[[receqn1]],[[receqn2]].
+
+#+NAME: receqn1
+\begin{equation}
+c^{(k+1)}_0 =  \left(\mathbf{1}-\tau\left(\nu_0 - E_T\right)\right)c^{(k)}_0 + \tau t c^{(k)}_1
+\end{equation}
+
+#+NAME: receqn2
+\begin{equation}
+c^{(k)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1
+\end{equation}
+
+These are the working equations. As an example, we begin with the initial set of
+values given as follows:
+
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results
+nu0 = 1;
+nu1 = 2;
+t=1;
+tau = 0.1;
+ET = 3;
+c0=1/sqrt(2);
+c1=1/sqrt(2);
+ham=[nu0 -t; -t nu1];
+println("\\nu_0=",nu0)
+println("\\nu_1=",nu1)
+println("t=",t)
+println("\\tau=",tau)
+println("E_T=",ET)
+println("c_0=",c0)
+println("c_1=",c1)
 #+END_SRC
 
+#+ATTR_LATEX: :mode math
 #+RESULTS:
 #+begin_example
-2-element Array{Array{Int32,1},1}:
- [1, 2]
- [3, 4]
-hello
-[1, 2][3, 4]
+\nu_0=1
+\nu_1=2
+t=1
+\tau=0.1
+E_T=3
+c_0=0.7071067811865475
+c_1=0.7071067811865475
+#+end_example
+
+The iteration can begin with these as starting values. The output is given in
+the table below.
+
+#+BEGIN_SRC jupyter-julia :session j1 :results output :eval noexport :exports results
+for n in 10:10:80
+    ck0=c0;
+    ck1=c1;
+    for i in 1:n
+        tck0=ck0;
+        tck1=ck1;
+        ck0 = (1-tau*(nu0 - ET))tck0 + t*tau*tck1;
+        ck1 = tau*t*tck0 + (1-tau*(nu1-ET))*tck1;
+        norm = sqrt(ck0*ck0 + ck1*ck1);
+        ck0=ck0/norm;
+        ck1=ck1/norm;
+    end
+    energy = [ck0 ck1] * (ham*[ck0;ck1]);
+    println(n,"\t",ck0,"\t",ck1,"\t",energy[1]);
+end
+#+END_SRC
+
+#+ATTR_LATEX: :mode math :placement [h] :center t :width \linewidth
+#+RESULTS:
+#+begin_example
++----+------------------+------------------+-------------------+
+| 10 |0.8325345415688012|0.5539731375209688|0.384482692919926  |
++----+------------------+------------------+-------------------+
+| 20 |0.8481318105729733|0.5297852696085559|0.3820169520382197 |
++----+------------------+------------------+-------------------+
+| 30 |0.8502938016675892|0.5263083229872757|0.38196704124139036|
++----+------------------+------------------+-------------------+
+| 40 |0.8506000682828394|0.5258132024181487|0.38196603207543756|
++----+------------------+------------------+-------------------+
+| 50 |0.8506435939378749|0.5257427851073715|0.3819660116711711 |
++----+------------------+------------------+-------------------+
+| 60 |0.8506497825205341|0.5257327719457557|0.3819660112586187 |
++----+------------------+------------------+-------------------+
+| 70 |0.8506506624858821|0.5257313481354616|0.3819660112502773 |
++----+------------------+------------------+-------------------+
+| 80 |0.8506507876108551|0.5257311456790742|0.38196601125010865|
++----+------------------+------------------+-------------------+
 #+end_example

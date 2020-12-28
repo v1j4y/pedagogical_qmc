@@ -1,4 +1,4 @@
-% Created 2020-12-26 sam. 23:21
+% Created 2020-12-28 lun. 20:18
 % Intended LaTeX compiler: pdflatex
 \documentclass[11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -32,13 +32,13 @@
 
 
 \section{Part I}
-\label{sec:org99a81f6}
+\label{sec:org39c2254}
 
 \section{Simple power method}
-\label{sec:org29cc75c}
+\label{sec:orgc178cd9}
 
 \subsection{2x2 Matrix}
-\label{sec:org7af4f28}
+\label{sec:org3c4d00a}
 
 Consider a Hamiltonian whose matrix form is shown in Eq:\ref{mat2x2}. This Hamiltonian
 has two eigenvectors and two eigenvalues. Let the two eigenvectors be
@@ -124,11 +124,76 @@ c_1=0.9486832980505138
 \end{verbatim}
 
 The iteration can begin with these as starting values. The output is given in
-shown in the Figure: .
+shown in the Figure:\ref{figure1}.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=15cm]{/home/vijay/Documents/pedagogical_qmc/figure1.pdf}
 \caption{\label{figure1}Convergence of the Local energy as a function of iterations.}
+\end{figure}
+
+\subsection{3x3 Matrix}
+\label{sec:org4a5f57d}
+
+A demonstration of all the different variants of QMC requires more than two states. Here we show a Hamiltonian with 3 states. The matrix form of the Hamiltonian is shown in Eq:\ref{mat3x3}.
+
+\begin{equation}
+\begin{bmatrix}
+ v_0 & -t & -t \\
+ -t & v_1 & -t \\
+ -t & -t & v_2 \\
+\end{bmatrix}
+\label{mat3x3}
+\end{equation}
+
+The trial vector can be written as shown in Eq:\ref{trial3x3}.
+
+\begin{equation}
+\label{trial3x3}
+\nu = c_0\mathbf{u}_0 + c_1\mathbf{u}_1 + c_2\mathbf{u}_2
+\end{equation}
+
+The three coefficients required are \(c_0\), \(c_1\), and \(c_2\). The recurrence relations for
+the three coefficients shown in Eq:\ref{applyg3x3}, Eq:\ref{receqn3}, Eq:\ref{receqn4}, and Eq:\ref{receqn5}.
+
+\begin{equation}
+\label{applyg3x3}
+\nu^{(k+1)} = c_0 (1-\tau(E_0-E_T))^{(k)}\mathbf{u_0} + c_1 (1-\tau(E_1-E_T))^{(k)}\mathbf{u_1}
+\end{equation}
+
+\begin{equation}
+\label{receqn3}
+c^{(k+1)}_0 =  \left(\mathbf{1}-\tau\left(\nu_0 - E_T\right)\right)c^{(k)}_0 + \tau t c^{(k)}_1 + \tau t c^{(k)}_2
+\end{equation}
+
+\begin{equation}
+\label{receqn4}
+c^{(k)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1 + \tau t c^{(k)}_2
+\end{equation}
+
+\begin{equation}
+\label{receqn5}
+c^{(k)}_2 = \tau t c^{(k)}_0 + \tau t c^{(k)}_1 + \left(\mathbf{1}-\tau\left(\nu_2 - E_T\right)\right)c^{(k)}_2
+\end{equation}
+
+\begin{verbatim}
+\nu_0=1
+\nu_1=2
+\nu_2=3
+t=1
+\tau=0.05
+E_T=3
+c_0=0.4082482904638631
+c_1=-0.8164965809277261
+c_1=0.4082482904638631
+\end{verbatim}
+
+The iteration can begin with these as starting values. The output is given in
+shown in the Figure:\ref{figure2}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=15cm]{/home/vijay/Documents/pedagogical_qmc/figure2.pdf}
+\caption{\label{figure2}Convergence of the Local energy as a function of iterations.}
 \end{figure}
 \end{document}

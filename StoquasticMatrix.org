@@ -102,19 +102,9 @@ println("c_1=",c1)
 #+END_SRC
 
 #+ATTR_LATEX: :mode math
-#+RESULTS:
-#+begin_example
-\nu_0=1
-\nu_1=2
-t=1
-\tau=0.1
-E_T=3
-c_0=0.9486832980505138
-c_1=0.31622776601683794
-#+end_example
 
 The iteration can begin with these as starting values. The output is given in
-shown in the Figure: .
+shown in the Figure:[[figure1]].
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results
 using Plots
@@ -145,7 +135,7 @@ end
 savefig(
     plot(1:length(outputdata),outputdata,
          xlabel=L"n",
-         ylabel=L"E_L\ ",
+         ylabel=L"E_0",
          lw=2,
          xlims = (0,9),
          ylims = (0.32,0.42),
@@ -161,9 +151,142 @@ savefig(
 #return(outputdata)
 #+END_SRC
 
-#+RESULTS:
-
 #+CAPTION: Convergence of the Local energy as a function of iterations.
 #+ATTR_LATEX: :width 15cm
 #+NAME: figure1
 [[/home/vijay/Documents/pedagogical_qmc/figure1.pdf]]
+
+** 3x3 Matrix
+
+A demonstration of all the different variants of QMC requires more than two states. Here we show a Hamiltonian with 3 states. The matrix form of the Hamiltonian is shown in Eq:[[mat3x3]].
+
+#+NAME: mat3x3
+#+ATTR_LATEX: :mode math :environment bmatrix :align cc
+| v_0 | -t  | -t  |
+| -t  | v_1 | -t  |
+| -t  | -t  | v_2 |
+
+The trial vector can be written as shown in Eq:[[trial3x3]].
+
+#+NAME: trial3x3
+\begin{equation}
+\nu = c_0\mathbf{u}_0 + c_1\mathbf{u}_1 + c_2\mathbf{u}_2
+\end{equation}
+
+The three coefficients required are \(c_0\), \(c_1\), and \(c_2\). The recurrence relations for
+the three coefficients shown in Eq:[[applyg3x3]], Eq:[[receqn3]], Eq:[[receqn4]], and Eq:[[receqn5]].
+
+#+NAME: applyg3x3
+\begin{equation}
+\nu^{(k+1)} = c_0 (1-\tau(E_0-E_T))^{(k)}\mathbf{u_0} + c_1 (1-\tau(E_1-E_T))^{(k)}\mathbf{u_1}
+\end{equation}
+
+#+NAME: receqn3
+\begin{equation}
+c^{(k+1)}_0 =  \left(\mathbf{1}-\tau\left(\nu_0 - E_T\right)\right)c^{(k)}_0 + \tau t c^{(k)}_1 + \tau t c^{(k)}_2
+\end{equation}
+
+#+NAME: receqn4
+\begin{equation}
+c^{(k)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1 + \tau t c^{(k)}_2
+\end{equation}
+
+#+NAME: receqn5
+\begin{equation}
+c^{(k)}_2 = \tau t c^{(k)}_0 + \tau t c^{(k)}_1 + \left(\mathbf{1}-\tau\left(\nu_2 - E_T\right)\right)c^{(k)}_2
+\end{equation}
+
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results
+nu0 = 1;
+nu1 = 2;
+nu2 = 3;
+t=1;
+tau = 0.05;
+ET = 3;
+c0= 1/sqrt(6);
+c1=-2/sqrt(6);
+c2= 1/sqrt(6);
+ham=[nu0 -t -t; -t nu1 -t; -t -t nu2];
+println("\\nu_0=",nu0)
+println("\\nu_1=",nu1)
+println("\\nu_2=",nu2)
+println("t=",t)
+println("\\tau=",tau)
+println("E_T=",ET)
+println("c_0=",c0)
+println("c_1=",c1)
+println("c_1=",c2)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+\nu_0=1
+\nu_1=2
+\nu_2=3
+t=1
+\tau=0.05
+E_T=3
+c_0=0.4082482904638631
+c_1=-0.8164965809277261
+c_1=0.4082482904638631
+#+end_example
+
+#+ATTR_LATEX: :mode math
+
+The iteration can begin with these as starting values. The output is given in
+shown in the Figure:[[figure2]].
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results
+using Plots
+using Plots.PlotMeasures
+using LaTeXStrings
+#println("| El |\t");
+#println("+----+\t");
+outputdata=[];
+for n in 10:10:80
+    ck0=c0;
+    ck1=c1;
+    ck2=c2;
+    for i in 1:n
+        tck0=ck0;
+        tck1=ck1;
+        tck2=ck2;
+        ck0 = (1-tau*(nu0-ET))*tck0 + t*tau*tck1 + t*tau*tck2;
+        ck1 = tau*t*tck0 + (1-tau*(nu1-ET))*tck1 + t*tau*tck2;
+        ck2 = tau*t*tck0 + tau*t*tck1 + (1-tau*(nu2-ET))*tck2;
+        norm = sqrt(ck0*ck0 + ck1*ck1 + ck2*ck2);
+        ck0=ck0/norm;
+        ck1=ck1/norm;
+        ck2=ck1/norm;
+    end
+    energy = [ck0 ck1 ck2] * (ham*[ck0;ck1;ck2]);
+    energy = (ham*[ck0;ck1;ck2])[1]/ck0;
+#   println(n,"\t",ck0,"\t",ck1,"\t",energy[1]);
+#   println("| ",energy[1]," |");
+#   println(energy[1]);
+    push!(outputdata,energy[1])
+end
+savefig(
+    plot(1:length(outputdata),outputdata,
+         xlabel=L"n",
+         ylabel=L"E_0",
+         lw=2,
+         xlims = (0,9),
+         ylims = (-1.80, 0.50),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+         thickness_scaling=1.5,
+         grid=:none,
+         marker=true,
+         markersize=2
+         )
+    ,"/home/vijay/Documents/pedagogical_qmc/figure2.pdf");
+#return(outputdata)
+#+END_SRC
+
+
+#+CAPTION: Convergence of the Local energy as a function of iterations.
+#+ATTR_LATEX: :width 15cm
+#+NAME: figure2
+[[/home/vijay/Documents/pedagogical_qmc/figure2.pdf]]

@@ -8,7 +8,7 @@
 
 * Part I
 
-* Simple power method
+* Deterministic power method
 
 ** 2x2 Matrix
 
@@ -77,7 +77,7 @@ c^{(k+1)}_0 =  \left(\mathbf{1}-\tau\left(\nu_0 - E_T\right)\right)c^{(k)}_0 + \
 
 #+NAME: receqn2
 \begin{equation}
-c^{(k)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1
+c^{(k+1)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1
 \end{equation}
 
 These are the working equations. As an example, we begin with the initial set of
@@ -188,12 +188,12 @@ c^{(k+1)}_0 =  \left(\mathbf{1}-\tau\left(\nu_0 - E_T\right)\right)c^{(k)}_0 + \
 
 #+NAME: receqn4
 \begin{equation}
-c^{(k)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1 + \tau t c^{(k)}_2
+c^{(k+1)}_1 = \tau t c^{(k)}_0 + \left(\mathbf{1}-\tau\left(\nu_1 - E_T\right)\right)c^{(k)}_1 + \tau t c^{(k)}_2
 \end{equation}
 
 #+NAME: receqn5
 \begin{equation}
-c^{(k)}_2 = \tau t c^{(k)}_0 + \tau t c^{(k)}_1 + \left(\mathbf{1}-\tau\left(\nu_2 - E_T\right)\right)c^{(k)}_2
+c^{(k+1)}_2 = \tau t c^{(k)}_0 + \tau t c^{(k)}_1 + \left(\mathbf{1}-\tau\left(\nu_2 - E_T\right)\right)c^{(k)}_2
 \end{equation}
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :exports results

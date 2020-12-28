@@ -2,4 +2,4 @@
 
 ** Bibliography
 
-   - Monte-Carlo Pedagogique - Michael Caffarel, Roland Assaraf
+   - [[https://dx.doi.org/10.1007/978-3-642-57237-1_3][Monte-Carlo Pedagogique - Michael Caffarel, Roland Assaraf]]

@@ -8,7 +8,7 @@
 
 * Part I
 
-* Deterministic power method
+* Simple power method
 
 ** 2x2 Matrix
 

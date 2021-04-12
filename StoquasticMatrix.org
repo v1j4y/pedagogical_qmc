@@ -521,31 +521,37 @@ for irun in 1:nruns
         end
 
         # rotate energy window
-        circshift!(tmpenergy,energylist[irun,:],-1);
-        energylist[irun,:]= tmpenergy;
-        # Add new energy
+        for idxi = 2:niter
+            energylist[irun,idxi-1] = energylist[irun,idxi]
+        end
         energylist[irun,end]= elij[j];
 
         # calculate the weighted eneries
-        map(x->totalEW[irun,x]+= energylist[irun,x]*timesweight[irun,x],collect(1:niter));
+        for idxi = 1:niter
+            totalEW[irun,idxi] += energylist[irun,idxi]*timesweight[irun,idxi]
+        end
 
         # calculate the sum of weights
-        map(x->totalweight[irun,x]+= timesweight[irun,x],collect(1:niter));
+        for idxi = 2:niter
+            totalweight[irun,idxi] += timesweight[irun,idxi]
+        end
 
         # rotate weight window
-        circshift!(tmpweight,weightdata[irun,:],-1);
-        weightdata[irun,:]= tmpweight;
+        for idxi = 3:niter
+            weightdata[irun,idxi-1] = weightdata[irun,idxi]
+        end
         weightdata[irun,1]= 1;
-        # Add new weight
         weightdata[irun,end] = weightij[(i,j)];
 
         # calculate the sum of product of weights
-        for idxi in 2:niter
-            timesweight[irun,idxi] = timesweight[irun,idxi]*weightdata[irun,idxi]/oldweightdata[irun,2]
+        for idxi = 2:niter
+            timesweight[irun,idxi] *= weightdata[irun,idxi]/oldweightdata[irun,2];
         end
 
         # set old weights
-        oldweightdata[irun,:] = weightdata[irun,:]
+        for idxi = 1:niter
+            oldweightdata[irun,idxi] = weightdata[irun,idxi]
+        end
 
         i = j;
     end
@@ -589,20 +595,14 @@ savefig(
 
 #+begin_src jupyter-julia :session j1
 tmpa = zeros(2,10)
-tmpb = ones(10)*2
-tmpa[1,1:10] = range(1,10,length=10)
-function tmpfun(x,tmpvec)
-    y=convert(Int,x)
-    tmpvec[2,y]=foldl(*,tmpvec[1,1:y])
-    return(y)
+tmpb = zeros(2,10)
+for i in 1:100000000
+    rand()
+    circshift!(tmpb,tmpa,10)
 end
-map(x->tmpa[2,x]=foldl(*,tmpa[1,1:x]),collect(1:10))
-map(x->tmpa[1,x]*=tmpb[x],collect(1:10))
-1.3^100
 #+end_src
 
 #+RESULTS:
-: 2.479335110965981e11
 
 #+begin_src C
 #include <stdio.h>
@@ -610,15 +610,29 @@ map(x->tmpa[1,x]*=tmpb[x],collect(1:10))
 
 int main()
 {
+    float *array = (float *)malloc(10000*sizeof(float));
     time_t t;
     printf("Doing\n");
     srand((unsigned)time(&t));
-    for(int i=0;i<100000000;++i)
+    for(int i=0;i<10000;++i)
     {
-        rand();
+        for(int j=0;j<10000;++j)
+        {
+            if(rand()>0.5)
+            {
+              rand();
+              array[j];
+            }
+            else
+            {
+              rand();
+              array[j];
+            }
+        }
     }
     printf("Done\n");
 
+    free(array);
     return(0);
 }
 

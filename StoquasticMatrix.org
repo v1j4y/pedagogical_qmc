@@ -360,7 +360,7 @@ tau = 0.1;
 ET = 3;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 1024;
+nsteps = 2024;
 niter = 200;
 nruns = 20;
 ham=[nu0 -t; -t nu1];
@@ -370,7 +370,7 @@ ham=[nu0 -t; -t nu1];
 
 *** Calculate Local Energy (\(E_L\))
 
-#+BEGIN_SRC jupyter-julia :session j1 :results output :eval noexport :exports results
+#+BEGIN_SRC jupyter-julia :session j1 :results output :eval noexport :exports results :tangle pdmc.jl
 function getEL(ham, vi, i)
     return ((ham*transpose(vi))[i]/vi[i])
 end
@@ -380,7 +380,7 @@ end
 
 *** Calculate the probability (\(P_{i\rightarrow j}\))
 
-#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 function getPij(ham, tau, EL, i, j, vec)
     dim = size(ham)[1];
     idmat = Matrix(1.0*I,dim,dim);
@@ -395,7 +395,7 @@ end
 
 *** Calculate the weights (\(w_{i_1 i_2}\))
 
-#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 using LinearAlgebra
 function getWeightij(ham, tau, ET, EL, i, j)
     dim = size(ham)[1];
@@ -418,7 +418,7 @@ The simulation requires the calculation of a markov chain \(i_0, i_1, i_2,
 The iteration can begin with these as starting values. The output is given in
 shown in the Figure:[[figure3]].
 
-#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
 nu0 = 1;
 nu1 = 2;
 t=1;
@@ -426,8 +426,8 @@ tau = 0.1;
 ET = 3;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 424;
-niter = 200;
+nsteps = 1024;
+niter = 400;
 nruns = 200;
 ham=[nu0 -t; -t nu1];
 e_exact,vec_exact = eigen(ham)
@@ -442,7 +442,7 @@ e_exact,vec_exact = eigen(ham)
 
 #+RESULTS:
 
-#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 using Plots
 using Plots.PlotMeasures
 using LaTeXStrings
@@ -491,6 +491,8 @@ swapij = Dict(1=>2,2=>1);
 elij = Dict(1=>EL1,2=>EL2);
 weightij = Dict((1,1)=>w11,(1,2)=>w12,(2,1)=>w12,(2,2)=>w22);
 for irun in 1:nruns
+    i = 1;
+    j = 1;
     # fill up initial block
     for p in 1:niter
         #   i = trunc(Int,floor(2*rand()))+1;
@@ -578,7 +580,7 @@ plt=plot(collect(1:niter),avgdata,
          markersize=2,
         ribbon=vardata
          )
-#plot!([e_exact[1]],seriestype=:hline);
+plot!([e_exact[1]],seriestype=:hline);
 savefig(
     plt
     ,"/home/vijay/Documents/pedagogical_qmc/figure3.pdf");

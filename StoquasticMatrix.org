@@ -419,17 +419,23 @@ The iteration can begin with these as starting values. The output is given in
 shown in the Figure:[[figure3]].
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
+using Plots
+using Plots.PlotMeasures
+using LaTeXStrings
+using Statistics
 nu0 = 1;
 nu1 = 2;
 t=1;
+# Taux d'acceptation > 99%
 tau = 0.1;
 ET = 3;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 1024;
+nsteps = 4*8192;
 niter = 400;
-nruns = 200;
+nruns = 100;
 ham=[nu0 -t; -t nu1];
+vec0 = [c0 c1];
 e_exact,vec_exact = eigen(ham)
 # println("\\nu_0=",nu0)
 # println("\\nu_1=",nu1)
@@ -443,129 +449,141 @@ e_exact,vec_exact = eigen(ham)
 #+RESULTS:
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
-using Plots
-using Plots.PlotMeasures
-using LaTeXStrings
-using Statistics
 #println("| El |\t");
 #println("+----+\t");
-totaldata = zeros(niter,nruns)
-alldata = zeros(nruns,niter)
-totalEW     = zeros(nruns,niter)
-totalweight = zeros(nruns,niter)
-timesweight = zeros(nruns,niter)
-energylist  = zeros(nruns,niter)
-weightdata  = zeros(nruns,niter)
-oldweightdata  = zeros(nruns,niter)
-tmpweight   = zeros(niter)
-tmpenergy   = zeros(niter)
-avgdata = zeros(niter)
-vardata = zeros(niter)
-outputdata = [];
-listids    = [];
-listEL     = [];
-listwij    = [];
-#vec0 = [c0 c1 c2];
-vec0 = [c0 c1];
-i = 1;
-j = 1;
-EL = getEL(ham, [c0 c1], i)
-push!(listids,i);
-push!(listEL,getEL(ham,vec0, i));
-EL = listEL[end];
-push!(listwij,1.0);
-EL = getEL(ham, [c0 c1], 1)
-EL1 = EL;
-w11 = getWeightij(ham, tau, ET, EL1, 1, 1);
-w12 = getWeightij(ham, tau, ET, EL1, 1, 2);
-p11 = getPij(ham, tau, EL, 1, 1, [c0 c1])
-p12 = getPij(ham, tau, EL, 1, 2, [c0 c1])
-EL = getEL(ham, [c0 c1], 2)
-EL2 = EL;
-w21 = getWeightij(ham, tau, ET, EL2, 2, 1);
-w22 = getWeightij(ham, tau, ET, EL2, 2, 2);
-p21 = getPij(ham, tau, EL, 2, 1, [c0 c1])
-p22 = getPij(ham, tau, EL, 2, 2, [c0 c1])
-pij = Dict(1=>p11,2=>p22);
-swapij = Dict(1=>2,2=>1);
-elij = Dict(1=>EL1,2=>EL2);
-weightij = Dict((1,1)=>w11,(1,2)=>w12,(2,1)=>w12,(2,2)=>w22);
-for irun in 1:nruns
-    i = 1;
-    j = 1;
-    # fill up initial block
-    for p in 1:niter
-        #   i = trunc(Int,floor(2*rand()))+1;
-        if rand() > pij[j]
-            j = swapij[j]
-        end
-        if(p==1)
-            weightdata[irun,p] = 1;
-            oldweightdata[irun,p] = 1;
-        else
-            weightdata[irun,p] = weightij[(i,j)];
-            oldweightdata[irun,p] = weightij[(i,j)];
-        end
-        energylist[irun,p] = elij[j];
-        i = j;
-    end
+function doPDMC(ham,vec,niter,nruns,nsteps,tau)
+  totaldata = zeros(niter,nruns)
+  totalEW     = zeros(nruns,niter)
+  totalweight = zeros(nruns,niter)
+  timesweight = zeros(nruns,niter)
+  energylist  = zeros(nruns,niter)
+  energylist2 = zeros(nruns,niter)
+  weightdata  = zeros(nruns,niter)
+  weightdata2 = zeros(nruns,niter)
+  oldweightdata  = zeros(nruns,niter)
+  tmpweight   = zeros(niter)
+  tmpenergy   = zeros(niter)
+  avgdata = zeros(niter)
+  vardata = zeros(niter)
+  i = 1;
+  j = 1;
+  EL = getEL(ham, [c0 c1], 1)
+  EL1 = EL;
+  w11 = getWeightij(ham, tau, ET, EL1, 1, 1);
+  w12 = getWeightij(ham, tau, ET, EL1, 1, 2);
+  p11 = getPij(ham, tau, EL, 1, 1, [c0 c1])
+  p12 = getPij(ham, tau, EL, 1, 2, [c0 c1])
+  EL = getEL(ham, [c0 c1], 2)
+  EL2 = EL;
+  w21 = getWeightij(ham, tau, ET, EL2, 2, 1);
+  w22 = getWeightij(ham, tau, ET, EL2, 2, 2);
+  p21 = getPij(ham, tau, EL, 2, 1, [c0 c1])
+  p22 = getPij(ham, tau, EL, 2, 2, [c0 c1])
+  pij = Dict(1=>p11,2=>p22);
+  swapij = Dict(1=>2,2=>1);
+  elij = Dict(1=>EL1,2=>EL2);
+  weightij = Dict((1,1)=>w11,(1,2)=>w12,(2,1)=>w12,(2,2)=>w22);
+  for irun in 1:nruns
+      i = 1;
+      j = 1;
+      timestart = time()
+      # fill up initial block
+      for p in 1:niter
+          #   i = trunc(Int,floor(2*rand()))+1;
+          if rand() > pij[j]
+              j = swapij[j]
+          end
+          if(p==1)
+              @inbounds weightdata[irun,p] = 1;
+              @inbounds weightdata2[irun,p] = 1;
+              @inbounds oldweightdata[irun,p] = 1;
+          else
+              @inbounds weightdata[irun,p] = weightij[(i,j)];
+              @inbounds weightdata2[irun,p] = weightij[(i,j)];
+              @inbounds oldweightdata[irun,p] = weightij[(i,j)];
+          end
+          @inbounds energylist[irun,p] = elij[j];
+          @inbounds energylist2[irun,p] = elij[j];
+          i = j;
+      end
 
-    # calculate the sum of product of weights
-    map(x->timesweight[irun,x] =foldl(*,weightdata[irun,1:x]),collect(1:niter));
+      # calculate the sum of product of weights
+      map(x->timesweight[irun,x] =foldl(*,weightdata[irun,1:x]),collect(1:niter));
 
-    i = 1;
-    j = 1;
-    # do the iterations
-    for p in 1:nsteps
-        #   i = trunc(Int,floor(2*rand()))+1;
-        if rand() > pij[j]
-            j = swapij[j]
-        end
+      i = 1;
+      j = 1;
+      # do the iterations
+      for p in 1:nsteps
+          #   i = trunc(Int,floor(2*rand()))+1;
+          if rand() > pij[j]
+              j = swapij[j]
+          end
 
-        # rotate energy window
-        for idxi = 2:niter
-            energylist[irun,idxi-1] = energylist[irun,idxi]
-        end
-        energylist[irun,end]= elij[j];
+          # rotate energy window
+          for idxi = 2:niter
+              @inbounds energylist2[irun,idxi-1] = energylist[irun,idxi]
+          end
+          energylist2[irun,end]= elij[j];
+          energylist[irun,:]= energylist2[irun,:];
 
-        # calculate the weighted eneries
-        for idxi = 1:niter
-            totalEW[irun,idxi] += energylist[irun,idxi]*timesweight[irun,idxi]
-        end
+          # calculate the weighted eneries
+          for idxi = 1:niter
+              @inbounds totalEW[irun,idxi] += energylist[irun,idxi]*timesweight[irun,idxi]
+          end
 
-        # calculate the sum of weights
-        for idxi = 2:niter
-            totalweight[irun,idxi] += timesweight[irun,idxi]
-        end
+          # calculate the sum of weights
+          for idxi = 2:niter
+              @inbounds totalweight[irun,idxi] += timesweight[irun,idxi]
+          end
 
-        # rotate weight window
-        for idxi = 3:niter
-            weightdata[irun,idxi-1] = weightdata[irun,idxi]
-        end
-        weightdata[irun,1]= 1;
-        weightdata[irun,end] = weightij[(i,j)];
+          # rotate weight window
+          for idxi = 3:niter
+              @inbounds weightdata2[irun,idxi-1] = weightdata[irun,idxi]
+          end
+          weightdata2[irun,1]= 1;
+          weightdata2[irun,end] = weightij[(i,j)];
+          weightdata[irun,:] = weightdata2[irun,:];
 
-        # calculate the sum of product of weights
-        for idxi = 2:niter
-            timesweight[irun,idxi] *= weightdata[irun,idxi]/oldweightdata[irun,2];
-        end
+          # calculate the sum of product of weights
+          for idxi = 2:niter
+              @inbounds timesweight[irun,idxi] *= weightdata[irun,idxi]/oldweightdata[irun,2];
+          end
 
-        # set old weights
-        for idxi = 1:niter
-            oldweightdata[irun,idxi] = weightdata[irun,idxi]
-        end
+          # set old weights
+          for idxi = 1:niter
+              @inbounds oldweightdata[irun,idxi] = weightdata[irun,idxi]
+          end
 
-        i = j;
-    end
-    for j in 1:niter
-       totaldata[j,irun] = totalEW[irun,j]/totalweight[irun,j]
-    end
+          i = j;
+      end
+      for j in 1:niter
+         @inbounds totaldata[j,irun] = totalEW[irun,j]/totalweight[irun,j]
+      end
+      timeloop = time() - timestart;
+      println(irun," Time =",timeloop)
+  end
+  for i in 1:niter
+      @inbounds avgdata[i] = mean(totaldata[i,:])
+      @inbounds vardata[i] = var(totaldata[i,:])
+  end
+  return(avgdata,vardata);
 end
-for i in 1:niter
-    avgdata[i] = mean(totaldata[i,:])
-    vardata[i] = var(totaldata[i,:])
+#+end_src
+
+*** Plot results
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
+ntimes = 4
+avgdataall = zeros(niter,ntimes)
+vardataall = zeros(niter,ntimes)
+idxtau = 1
+for tau in 0.002:0.020:0.082
+    avgdata,vardata = doPDMC(ham,vec,niter,nruns,nsteps,tau);
+    avgdataall[:,idxtau] = avgdata
+    vardataall[:,idxtau] = vardata
+    idxtau += 1
 end
-plt=plot(collect(1:niter),avgdata,
+plt=plot(collect(1:niter),avgdataall,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
@@ -576,17 +594,16 @@ plt=plot(collect(1:niter),avgdata,
          legendfontsize=6,
         thickness_scaling=1.5,
          grid=:none,
-         marker=true,
-         markersize=2,
-        ribbon=vardata
+#        marker=true,
+#        markersize=2,
+         size=(400,600),
+        ribbon=vardataall
          )
 plot!([e_exact[1]],seriestype=:hline);
 savefig(
     plt
     ,"/home/vijay/Documents/pedagogical_qmc/figure3.pdf");
 #+end_src
-
-#+RESULTS:
 
 #+CAPTION: Convergence of the Local energy as a function of iterations(PDMC).
 #+ATTR_LATEX: :width 15cm
@@ -612,27 +629,26 @@ end
 
 int main()
 {
-    float *array = (float *)malloc(10000*sizeof(float));
-    time_t t;
+    float *array = (float *)malloc(1000000*sizeof(float));
+    float *arrayB = (float *)malloc(1000000*sizeof(float));
+    float *arrayC = (float *)malloc(1000000*sizeof(float));
+    time_t tstart,tend;
     printf("Doing\n");
-    srand((unsigned)time(&t));
-    for(int i=0;i<10000;++i)
+    srand((unsigned)time(&tstart));
+    for(int i=0;i<500;++i)
     {
         for(int j=0;j<10000;++j)
         {
-            if(rand()>0.5)
+            for(int k=0;k<100;++k)
             {
-              rand();
-              array[j];
-            }
-            else
-            {
-              rand();
-              array[j];
+              array[j*k]  = rand();
+              arrayB[j*k] = rand();
+              arrayC[j*k] = rand();
             }
         }
     }
-    printf("Done\n");
+    time(&tend);
+    printf("Done time=%ld seconds\n",(tend-tstart));
 
     free(array);
     return(0);
@@ -641,5 +657,5 @@ int main()
 #+end_src
 
 #+RESULTS:
-| Doing |
-| Done  |
+| Doing |         |         |
+| Done  | time=11 | seconds |

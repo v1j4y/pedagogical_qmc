@@ -390,10 +390,8 @@ function getPij(ham, tau, EL, i, j, vec)
 end
 #+end_src
 
-#+RESULTS:
-: getPij (generic function with 1 method)
-
 *** Calculate the weights (\(w_{i_1 i_2}\))
+
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 using LinearAlgebra
@@ -409,6 +407,19 @@ end
 #+RESULTS:
 : getWeightij (generic function with 1 method)
 
+*** Function that does the swap
+#+begin_src jupyter-julia :tangle pdmc.jl
+function doSwap(randval, j, pij)
+   outj = j
+   for (keypij,valpij) in pij[j]
+       if randval < keypij
+           outj = valpij
+           break;
+       end
+    end
+    return(outj);
+end
+#+end_src
 *** Combine \(E_L\) and \(w_{ij}\) to do PDMC
 
 The simulation requires the calculation of a markov chain \(i_0, i_1, i_2,
@@ -420,9 +431,10 @@ shown in the Figure:[[figure3]].
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
 using Plots
-using Plots.PlotMeasures
 using LaTeXStrings
+using DataStructures
 using Statistics
+#using Plots.PlotMeasures
 nu0 = 1;
 nu1 = 2;
 t=1;
@@ -437,20 +449,11 @@ nruns = 100;
 ham=[nu0 -t; -t nu1];
 vec0 = [c0 c1];
 e_exact,vec_exact = eigen(ham)
-# println("\\nu_0=",nu0)
-# println("\\nu_1=",nu1)
-# println("t=",t)
-# println("\\tau=",tau)
-# println("E_T=",ET)
-# println("c_0=",c0)
-# println("c_1=",c1)
 #+END_SRC
 
 #+RESULTS:
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
-#println("| El |\t");
-#println("+----+\t");
 function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   totaldata = zeros(niter,nruns)
   totalEW     = zeros(nruns,niter)
@@ -467,22 +470,24 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   vardata = zeros(niter)
   i = 1;
   j = 1;
-  EL = getEL(ham, [c0 c1], 1)
-  EL1 = EL;
-  w11 = getWeightij(ham, tau, ET, EL1, 1, 1);
-  w12 = getWeightij(ham, tau, ET, EL1, 1, 2);
-  p11 = getPij(ham, tau, EL, 1, 1, [c0 c1])
-  p12 = getPij(ham, tau, EL, 1, 2, [c0 c1])
-  EL = getEL(ham, [c0 c1], 2)
-  EL2 = EL;
-  w21 = getWeightij(ham, tau, ET, EL2, 2, 1);
-  w22 = getWeightij(ham, tau, ET, EL2, 2, 2);
-  p21 = getPij(ham, tau, EL, 2, 1, [c0 c1])
-  p22 = getPij(ham, tau, EL, 2, 2, [c0 c1])
-  pij = Dict(1=>p11,2=>p22);
-  swapij = Dict(1=>2,2=>1);
-  elij = Dict(1=>EL1,2=>EL2);
-  weightij = Dict((1,1)=>w11,(1,2)=>w12,(2,1)=>w12,(2,2)=>w22);
+  swapij = Dict();
+  elij = Dict();
+  weightij = Dict();
+  dim = size(ham)[1];
+  pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+  for i in 1:dim
+      for j in 1:dim
+          EL = getEL(ham, vec, i)
+          EL1 = EL;
+          w12 = getWeightij(ham, tau, ET, EL1, i, j);
+          p12 = getPij(ham, tau, EL, i, j, vec)
+          if(i==j)
+              elij[i] = EL;
+          end
+          pij[i][p12] = j
+          weightij[(i,j)] = w12
+      end
+  end
   for irun in 1:nruns
       i = 1;
       j = 1;
@@ -490,9 +495,10 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       # fill up initial block
       for p in 1:niter
           #   i = trunc(Int,floor(2*rand()))+1;
-          if rand() > pij[j]
-              j = swapij[j]
-          end
+          #if rand() > pij[j]
+          #    j = swapij[j]
+          #end
+          j = doSwap(rand(),j,pij);
           if(p==1)
               @inbounds weightdata[irun,p] = 1;
               @inbounds weightdata2[irun,p] = 1;
@@ -515,9 +521,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       # do the iterations
       for p in 1:nsteps
           #   i = trunc(Int,floor(2*rand()))+1;
-          if rand() > pij[j]
-              j = swapij[j]
-          end
+          j = doSwap(rand(),j,pij);
 
           # rotate energy window
           for idxi = 2:niter
@@ -573,12 +577,12 @@ end
 *** Plot results
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
-ntimes = 4
+ntimes = 5
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes)
 idxtau = 1
 for tau in 0.002:0.020:0.082
-    avgdata,vardata = doPDMC(ham,vec,niter,nruns,nsteps,tau);
+    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
@@ -610,15 +614,101 @@ savefig(
 #+NAME: figure3
 [[/home/vijay/Documents/pedagogical_qmc/figure3.pdf]]
 
+*** 3x3 matrix
+
+
+A demonstration of all the different variants of QMC requires more than two states. Here we show a Hamiltonian with 3 states. The matrix form of the Hamiltonian is shown in Eq:[[mat3x3]].
+
+#+NAME: mat3x3
+#+ATTR_LATEX: :mode math :environment bmatrix :align cc
+| v_0 | -t  | -t  |
+| -t  | v_1 | -t  |
+| -t  | -t  | v_2 |
+I
+
+#+begin_src jupyter-julia
+nu0 = 1;
+nu1 = 2;
+nu2 = 3;
+t=1;
+tau = 0.05;
+ET = 3;
+c0= 1/sqrt(6);
+c1= 2/sqrt(6);
+c2= 1/sqrt(6);
+ham=[nu0 -t -t; -t nu1 -t; -t -t nu2];
+vec0 = [c0 c1 c2];
+e_exact,vec_exact = eigen(ham)
+nsteps = 1*8192;
+niter = 400;
+nruns = 100;
+println("\\nu_0=",nu0)
+println("\\nu_1=",nu1)
+println("\\nu_2=",nu2)
+println("t=",t)
+println("\\tau=",tau)
+println("E_T=",ET)
+println("Exact En=",e_exact)
+println("Exact Eval=",vec_exact[:,1])
+println("c_0=",c0)
+println("c_1=",c1)
+println("c_1=",c2)
+println("nsteps=",nsteps)
+#+end_src
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
+ntimes = 5
+avgdataall = zeros(niter,ntimes)
+vardataall = zeros(niter,ntimes)
+idxtau = 1
+for tau in 0.082:0.020:0.082
+    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
+    avgdataall[:,idxtau] = avgdata
+    vardataall[:,idxtau] = vardata
+    idxtau += 1
+end
+plt=plot(collect(1:niter),avgdataall,
+         xlabel=L"n",
+         ylabel=L"E_0",
+#        lw=2,
+         xlims = (0,niter),
+         ylims = (-1.30,1.10),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+        thickness_scaling=1.5,
+         grid=:none,
+#        marker=true,
+#        markersize=2,
+         size=(400,600),
+        ribbon=vardataall
+         )
+plot!([e_exact[1]],seriestype=:hline);
+savefig(
+    plt
+    ,"/home/vijay/Documents/pedagogical_qmc/figure4.pdf");
+#+end_src
+
+
 *** Conclusion
 
+PDMC is not useful for large \(n\) when the weights become too large or too small.
+
+** optimal SRDMC
+
+*** Many walkers (Fixed number)
+
+* Rough work
+
 #+begin_src jupyter-julia :session j1
-tmpa = zeros(2,10)
-tmpb = zeros(2,10)
-for i in 1:100000000
-    rand()
-    circshift!(tmpb,tmpa,10)
+using DataStructures
+tmpdict = SortedDict{Any, Any}[SortedDict() for i = 1:10];
+for i in 1:3
+    for j in 1:3
+        tmpdict[i][rand()] = j
+    end
 end
+println(tmpdict)
 #+end_src
 
 #+RESULTS:
@@ -655,7 +745,3 @@ int main()
 }
 
 #+end_src
-
-#+RESULTS:
-| Doing |         |         |
-| Done  | time=11 | seconds |

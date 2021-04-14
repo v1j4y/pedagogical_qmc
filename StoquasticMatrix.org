@@ -410,12 +410,13 @@ end
 *** Function that does the swap
 #+begin_src jupyter-julia :tangle pdmc.jl
 function doSwap(randval, j, pij)
-   outj = j
+   outj = -1
    for (keypij,valpij) in pij[j]
        if randval < keypij
            outj = valpij
            break;
        end
+       outj = valpij
     end
     return(outj);
 end

@@ -394,7 +394,6 @@ end
 
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
-using LinearAlgebra
 function getWeightij(ham, tau, ET, EL, i, j)
     dim = size(ham)[1];
     idmat = Matrix(1.0*I,dim,dim);
@@ -421,6 +420,7 @@ function doSwap(randval, j, pij)
     return(outj);
 end
 #+end_src
+
 *** Combine \(E_L\) and \(w_{ij}\) to do PDMC
 
 The simulation requires the calculation of a markov chain \(i_0, i_1, i_2,
@@ -435,6 +435,7 @@ using Plots
 using LaTeXStrings
 using DataStructures
 using Statistics
+using LinearAlgebra
 #using Plots.PlotMeasures
 nu0 = 1;
 nu1 = 2;
@@ -444,7 +445,7 @@ tau = 0.1;
 ET = 3;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 4*8192;
+nsteps = 1*8192;
 niter = 400;
 nruns = 100;
 ham=[nu0 -t; -t nu1];
@@ -489,6 +490,9 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           weightij[(i,j)] = w12
       end
   end
+    println(pij)
+    println(elij)
+    println(weightij)
   for irun in 1:nruns
       i = 1;
       j = 1;
@@ -516,6 +520,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
 
       # calculate the sum of product of weights
       map(x->timesweight[irun,x] =foldl(*,weightdata[irun,1:x]),collect(1:niter));
+      println(energylist[irun,1]," | ",timesweight[irun,1])
 
       i = 1;
       j = 1;
@@ -537,7 +542,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           end
 
           # calculate the sum of weights
-          for idxi = 2:niter
+          for idxi = 1:niter
               @inbounds totalweight[irun,idxi] += timesweight[irun,idxi]
           end
 
@@ -561,6 +566,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
 
           i = j;
       end
+      println(totalEW[irun,1]," | ",totalweight[irun,1])
       for j in 1:niter
          @inbounds totaldata[j,irun] = totalEW[irun,j]/totalweight[irun,j]
       end
@@ -630,17 +636,19 @@ I
 #+begin_src jupyter-julia
 nu0 = 1;
 nu1 = 2;
-nu2 = 3;
+nu2 = 10;
 t=1;
-tau = 0.05;
-ET = 3;
-c0= 1/sqrt(6);
-c1= 2/sqrt(6);
-c2= 1/sqrt(6);
-ham=[nu0 -t -t; -t nu1 -t; -t -t nu2];
+tau = 0.0005;
+ET = 1.5;
+c0= 3.00/sqrt(3);
+c1= 2.001/sqrt(3);
+c2= 1.00101/sqrt(3);
+ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0 c1 c2];
+vec0 = vec0/norm(vec0);
+#ET = getEL(ham,vec0,1)
 e_exact,vec_exact = eigen(ham)
-nsteps = 1*8192;
+nsteps = 2*8192;
 niter = 400;
 nruns = 100;
 println("\\nu_0=",nu0)
@@ -650,7 +658,7 @@ println("t=",t)
 println("\\tau=",tau)
 println("E_T=",ET)
 println("Exact En=",e_exact)
-println("Exact Eval=",vec_exact[:,1])
+println("Exact Eval=",vec_exact)
 println("c_0=",c0)
 println("c_1=",c1)
 println("c_1=",c2)
@@ -662,18 +670,18 @@ ntimes = 5
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes)
 idxtau = 1
-for tau in 0.082:0.020:0.082
+for tau in 0.0005:0.0001:0.0006
     avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
 end
-plt=plot(collect(1:niter),avgdataall,
+plt2=plot(collect(1:niter),avgdataall,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
          xlims = (0,niter),
-         ylims = (-1.30,1.10),
+#        ylims = (0.00,0.50),
          framestyle=:box,
          guidefontsize=10,
          legendfontsize=6,
@@ -684,11 +692,21 @@ plt=plot(collect(1:niter),avgdataall,
          size=(400,600),
         ribbon=vardataall
          )
-plot!([e_exact[1]],seriestype=:hline);
+plot!([[-0.5]],seriestype=:hline);
 savefig(
     plt
     ,"/home/vijay/Documents/pedagogical_qmc/figure4.pdf");
 #+end_src
+
+#+RESULTS:
+:RESULTS:
+# [goto error]
+: UndefVarError: niter not defined
+:
+: Stacktrace:
+:  [1] top-level scope at In[2]:2
+:  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
+:END:
 
 
 *** Conclusion

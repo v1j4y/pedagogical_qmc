@@ -529,7 +529,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
     println(weightij)
   for irun in 1:nruns
       i = rand(1:dim);
-      i = 2;
+      i = 1;
       j = i;
       timestart = time()
       # fill up initial block
@@ -665,14 +665,14 @@ A demonstration of all the different variants of QMC requires more than two stat
 | -t  | -t  | v_2 |
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
-nu0 = 1;
-nu1 = 2;
-nu2 = 10;
+nu0 = 1+1;
+nu1 = 2+1;
+nu2 = 3+1;
 t=1;
 tau = 0.01;
 c0= 1.00/sqrt(3);
 c1= 1.001/sqrt(3);
-c2= 0.50001/sqrt(3);
+c2= 1.00001/sqrt(3);
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0 c1 c2];
 vec0 = vec0/norm(vec0);
@@ -709,23 +709,131 @@ println("tmin=",getTmin(ham,vec0))
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 ntimes = 5
-tstep = 0.04
+tstep = 0.004
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes)
 idxtau = 1
-for tau in taumax - (ntimes+1)*tstep:tstep:taumax-tstep
-    println(tau)
+for tau in taumax - (ntimes+119)*tstep:tstep:taumax-tstep
+    println(tau,"max=",taumax)
     avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
+    if(idxtau==6)
+        break;
+    end
 end
 plt2=plot(collect(1:niter),avgdataall,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
          xlims = (0,niter),
-#        ylims = (0.00,0.50),
+#        ylims = (-0.10,0.50),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+        thickness_scaling=1.5,
+         grid=:none,
+#        marker=true,
+#        markersize=2,
+         size=(400,600),
+        ribbon=vardataall
+         )
+plot!([[-0.5]],seriestype=:hline);
+savefig(
+    plt
+    ,"/home/vijay/Documents/pedagogical_qmc/figure4.pdf");
+#+end_src
+
+*** NxN matrix
+
+
+A demonstration of all the different variants of QMC requires more than two states. Here we show a Hamiltonian with 3 states. The matrix form of the Hamiltonian is shown in Eq:[[mat3x3]].
+
+#+NAME: mat3x3
+#+ATTR_LATEX: :mode math :environment bmatrix :align cc
+| v_0 | -t  | .   | .  | -t  |
+| -t  | v_1 | -t  | -t | .   |
+| -t  | -t  | v_2 | .  | .   |
+| -t  | -t  | .   | .  | -t  |
+| -t  | .   | .   | -t | v_N |
+
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
+nu0 = 1+0;
+nu1 = 2+0;
+nu2 = 23+0;
+nu3 = 24+0;
+nu4 = 25+0;
+nu5 = 26+0;
+t=1;
+tau = 0.01;
+c0= 1.00000
+c1= 1.10000
+c2= 1.01000
+c3= 1.00100
+c4= 1.00100
+c5= 1.00010
+ham=[nu0 -t   -t  -t  -t   -t;
+     -t   nu1 -t  -t  -t   -t;
+     -t   -t  nu2 -t  -t   -t;
+     -t   -t  -t  nu3 -t   -t;
+     -t   -t  -t  -t  nu4  -t;
+     -t   -t  -t  -t  -t  nu5;]*1.0;
+vec0 = [c0 c1 c2 c3 c4 c5];
+vec0 = vec0/norm(vec0);
+dim = size(ham)[1]
+ET = -typemax(Float64)
+for i in 1:dim
+    if(ET < getEL(ham,vec0,i))
+        ET = getEL(ham,vec0,i)
+    end
+end
+tau = getTmin(ham,vec0) + 0.001
+taumax = getTmin(ham,vec0) + 0.001
+taumax = taumax - 0.001
+#ET = getEL(ham,vec0,1)
+e_exact,vec_exact = eigen(ham)
+nsteps = 1*8192;
+niter = 400;
+nruns = 100;
+println("\\nu_0=",nu0)
+println("\\nu_1=",nu1)
+println("\\nu_2=",nu2)
+println("t=",t)
+println("\\tau=",tau)
+println("E_T=",ET)
+println("Exact En=",e_exact)
+println("Exact Eval=",vec_exact)
+println("c_0=",c0)
+println("c_1=",c1)
+println("c_1=",c2)
+println("ET=",ET)
+println("nsteps=",nsteps)
+println("tmin=",getTmin(ham,vec0))
+#+end_src
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
+ntimes = 5
+tstep = 0.001
+avgdataall = zeros(niter,ntimes)
+vardataall = zeros(niter,ntimes)
+idxtau = 1
+for tau in taumax - (ntimes+190)*tstep:tstep:taumax-tstep
+    println(tau,"max=",taumax)
+    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
+    avgdataall[:,idxtau] = avgdata
+    vardataall[:,idxtau] = vardata
+    idxtau += 1
+    if(idxtau==6)
+        break;
+    end
+end
+plt2=plot(collect(1:niter),avgdataall,
+         xlabel=L"n",
+         ylabel=L"E_0",
+#        lw=2,
+         xlims = (0,niter),
+#        ylims = (-0.10,0.50),
          framestyle=:box,
          guidefontsize=10,
          legendfontsize=6,
@@ -748,9 +856,10 @@ savefig(
 : UndefVarError: niter not defined
 :
 : Stacktrace:
-:  [1] top-level scope at In[2]:3
+:  [1] top-level scope at In[1]:3
 :  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
 :END:
+
 
 
 *** Conclusion

@@ -372,7 +372,11 @@ ham=[nu0 -t; -t nu1];
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :eval noexport :exports results :tangle pdmc.jl
 function getEL(ham, vi, i)
-    return ((ham*transpose(vi))[i]/vi[i])
+    if(vi[i]==0.0)
+        return typemax(Float64)
+    else
+        return ((ham*transpose(vi))[i]/vi[i])
+    end
 end
 #+end_src
 
@@ -386,12 +390,15 @@ function getPij(ham, tau, EL, i, j, vec)
     idmat = Matrix(1.0*I,dim,dim);
     numer = vec[j] * (idmat - tau * (ham - EL*idmat))[i,j];
     denom = vec[i];
-    return(numer/denom)
+    if(denom==0.0)
+        return typemax(Float64)
+    else
+        return(numer/denom)
+    end
 end
 #+end_src
 
 *** Calculate the weights (\(w_{i_1 i_2}\))
-
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 function getWeightij(ham, tau, ET, EL, i, j)
@@ -399,21 +406,48 @@ function getWeightij(ham, tau, ET, EL, i, j)
     idmat = Matrix(1.0*I,dim,dim);
     numer = (idmat - tau * (ham - ET*idmat))[i,j];
     denom = (idmat - tau * (ham - EL*idmat))[i,j];
-    return(numer/denom)
+    println(ET," ET | ",numer)
+    println(EL," EL | ",denom)
+    if(denom==0.0)
+        return typemax(Float64)
+    else
+        return(numer/denom)
+    end
 end
 #+end_src
 
 #+RESULTS:
 : getWeightij (generic function with 1 method)
 
+*** Calculate min time step (\(\tau\))
+#+begin_src jupyter-julia :tangle pdmc.jl
+function getTmin(ham, vec0)
+    tmin = 0
+    dim = size(ham)[1];
+    diagmin = -1.0
+    for i in 1:dim
+       EL = getEL(ham, vec0, i)
+       if(diagmin < abs(ham[i,i]-EL))
+           diagmin = abs(ham[i,i] - EL);
+       end
+       println(ham[i,i],EL);
+    end
+    tmin = 1.0/diagmin;
+    return(tmin);
+end
+#+end_src
 *** Function that does the swap
 #+begin_src jupyter-julia :tangle pdmc.jl
 function doSwap(randval, j, pij)
    outj = -1
    for (keypij,valpij) in pij[j]
        if randval < keypij
-           outj = valpij
-           break;
+           if isnan(keypij)
+               continue;
+           else
+               outj = valpij
+               break;
+           end
        end
        outj = valpij
     end
@@ -494,8 +528,9 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
     println(elij)
     println(weightij)
   for irun in 1:nruns
-      i = 1;
-      j = 1;
+      i = rand(1:dim);
+      i = 2;
+      j = i;
       timestart = time()
       # fill up initial block
       for p in 1:niter
@@ -505,25 +540,22 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           #end
           j = doSwap(rand(),j,pij);
           if(p==1)
-              @inbounds weightdata[irun,p] = 1;
-              @inbounds weightdata2[irun,p] = 1;
-              @inbounds oldweightdata[irun,p] = 1;
+              weightdata[irun,p] = 1;
+              weightdata2[irun,p] = 1;
+              oldweightdata[irun,p] = 1;
           else
-              @inbounds weightdata[irun,p] = weightij[(i,j)];
-              @inbounds weightdata2[irun,p] = weightij[(i,j)];
-              @inbounds oldweightdata[irun,p] = weightij[(i,j)];
+              weightdata[irun,p] = weightij[(i,j)];
+              weightdata2[irun,p] = weightij[(i,j)];
+              oldweightdata[irun,p] = weightij[(i,j)];
           end
-          @inbounds energylist[irun,p] = elij[j];
-          @inbounds energylist2[irun,p] = elij[j];
+          energylist[irun,p] = elij[j];
+          energylist2[irun,p] = elij[j];
           i = j;
       end
 
       # calculate the sum of product of weights
       map(x->timesweight[irun,x] =foldl(*,weightdata[irun,1:x]),collect(1:niter));
-      println(energylist[irun,1]," | ",timesweight[irun,1])
 
-      i = 1;
-      j = 1;
       # do the iterations
       for p in 1:nsteps
           #   i = trunc(Int,floor(2*rand()))+1;
@@ -531,24 +563,24 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
 
           # rotate energy window
           for idxi = 2:niter
-              @inbounds energylist2[irun,idxi-1] = energylist[irun,idxi]
+              energylist2[irun,idxi-1] = energylist[irun,idxi]
           end
           energylist2[irun,end]= elij[j];
           energylist[irun,:]= energylist2[irun,:];
 
           # calculate the weighted eneries
           for idxi = 1:niter
-              @inbounds totalEW[irun,idxi] += energylist[irun,idxi]*timesweight[irun,idxi]
+              totalEW[irun,idxi] += energylist[irun,idxi]*timesweight[irun,idxi]
           end
 
           # calculate the sum of weights
           for idxi = 1:niter
-              @inbounds totalweight[irun,idxi] += timesweight[irun,idxi]
+              totalweight[irun,idxi] += timesweight[irun,idxi]
           end
 
           # rotate weight window
           for idxi = 3:niter
-              @inbounds weightdata2[irun,idxi-1] = weightdata[irun,idxi]
+              weightdata2[irun,idxi-1] = weightdata[irun,idxi]
           end
           weightdata2[irun,1]= 1;
           weightdata2[irun,end] = weightij[(i,j)];
@@ -556,26 +588,26 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
 
           # calculate the sum of product of weights
           for idxi = 2:niter
-              @inbounds timesweight[irun,idxi] *= weightdata[irun,idxi]/oldweightdata[irun,2];
+              timesweight[irun,idxi] *= weightdata[irun,idxi]/oldweightdata[irun,2];
           end
 
           # set old weights
           for idxi = 1:niter
-              @inbounds oldweightdata[irun,idxi] = weightdata[irun,idxi]
+              oldweightdata[irun,idxi] = weightdata[irun,idxi]
           end
 
           i = j;
       end
-      println(totalEW[irun,1]," | ",totalweight[irun,1])
       for j in 1:niter
-         @inbounds totaldata[j,irun] = totalEW[irun,j]/totalweight[irun,j]
+         totaldata[j,irun] = totalEW[irun,j]/totalweight[irun,j]
       end
       timeloop = time() - timestart;
       println(irun," Time =",timeloop)
+      println("10th E=",totaldata[10,irun]);
   end
   for i in 1:niter
-      @inbounds avgdata[i] = mean(totaldata[i,:])
-      @inbounds vardata[i] = var(totaldata[i,:])
+      avgdata[i] = mean(totaldata[i,:])
+      vardata[i] = var(totaldata[i,:])
   end
   return(avgdata,vardata);
 end
@@ -631,24 +663,32 @@ A demonstration of all the different variants of QMC requires more than two stat
 | v_0 | -t  | -t  |
 | -t  | v_1 | -t  |
 | -t  | -t  | v_2 |
-I
 
-#+begin_src jupyter-julia
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
 nu0 = 1;
 nu1 = 2;
 nu2 = 10;
 t=1;
-tau = 0.0005;
-ET = 1.5;
-c0= 3.00/sqrt(3);
-c1= 2.001/sqrt(3);
-c2= 1.00101/sqrt(3);
+tau = 0.01;
+c0= 1.00/sqrt(3);
+c1= 1.001/sqrt(3);
+c2= 0.50001/sqrt(3);
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0 c1 c2];
 vec0 = vec0/norm(vec0);
+dim = size(ham)[1]
+ET = -typemax(Float64)
+for i in 1:dim
+    if(ET < getEL(ham,vec0,i))
+        ET = getEL(ham,vec0,i)
+    end
+end
+tau = getTmin(ham,vec0) + 0.001
+taumax = getTmin(ham,vec0) + 0.001
+taumax = taumax - 0.001
 #ET = getEL(ham,vec0,1)
 e_exact,vec_exact = eigen(ham)
-nsteps = 2*8192;
+nsteps = 1*8192;
 niter = 400;
 nruns = 100;
 println("\\nu_0=",nu0)
@@ -662,15 +702,18 @@ println("Exact Eval=",vec_exact)
 println("c_0=",c0)
 println("c_1=",c1)
 println("c_1=",c2)
+println("ET=",ET)
 println("nsteps=",nsteps)
+println("tmin=",getTmin(ham,vec0))
 #+end_src
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 ntimes = 5
+tstep = 0.01
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes)
 idxtau = 1
-for tau in 0.0005:0.0001:0.0006
+for tau in taumax - (ntimes+1)*tstep:0.001:taumax-tstep
     avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
@@ -704,7 +747,7 @@ savefig(
 : UndefVarError: niter not defined
 :
 : Stacktrace:
-:  [1] top-level scope at In[2]:2
+:  [1] top-level scope at In[2]:3
 :  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
 :END:
 

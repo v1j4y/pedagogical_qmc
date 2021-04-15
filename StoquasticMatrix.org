@@ -709,11 +709,12 @@ println("tmin=",getTmin(ham,vec0))
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 ntimes = 5
-tstep = 0.01
+tstep = 0.04
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes)
 idxtau = 1
-for tau in taumax - (ntimes+1)*tstep:0.001:taumax-tstep
+for tau in taumax - (ntimes+1)*tstep:tstep:taumax-tstep
+    println(tau)
     avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata

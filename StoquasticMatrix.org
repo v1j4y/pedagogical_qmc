@@ -353,16 +353,24 @@ E_2 = \frac{E_L(i_2) w_{i_0 i_1}w_{i_1 i_2} + E_L(i_3) w_{i_1 i_2}w_{i_2 i_3} + 
 ** A simple implementation of PDMC
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :eval noexport :exports results
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
 nu0 = 1;
 nu1 = 2;
 t=1;
-tau = 0.1;
-ET = 3;
+tau = 0.001;
+ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
 nsteps = 2024;
 niter = 200;
 nruns = 20;
+vec0=[c0, c1];
+vec0=[0.8506, 0.5257];
+vec0=vec0/norm(vec0);
 ham=[nu0 -t; -t nu1];
 #+END_SRC
 
@@ -375,20 +383,28 @@ function getEL(ham, vi, i)
     if(vi[i]==0.0)
         return typemax(Float64)
     else
-        return ((ham*transpose(vi))[i]/vi[i])
+        return ((ham*vi)[i]/vi[i])
     end
 end
 #+end_src
 
-#+RESULTS:
+**** Testing Local Energy
+
+#+begin_src julia
+println(eigen(ham))
+println(getEL(ham,vec0,1))
+println(getEL(ham,vec0,2))
+#println(getEL(ham,vec0,3))
+#+end_src
 
 *** Calculate the probability (\(P_{i\rightarrow j}\))
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
-function getPij(ham, tau, EL, i, j, vec)
+function getPij(ham, tau, i, j, vec)
     dim = size(ham)[1];
     idmat = Matrix(1.0*I,dim,dim);
-    numer = vec[j] * (idmat - tau * (ham - EL*idmat))[i,j];
+    EL = diagm(ham*vec);
+    numer = vec[j] * (idmat - tau * (ham - EL))[i,j];
     denom = vec[i];
     if(denom==0.0)
         return typemax(Float64)
@@ -398,16 +414,32 @@ function getPij(ham, tau, EL, i, j, vec)
 end
 #+end_src
 
+**** Testing probability
+
+#+begin_src julia
+for tau in 0.002:0.002:0.012
+    for i in 1:2
+        for j in 1:2
+            println(i," ",j," ",getPij(ham,tau,i,j,vec0))
+        end
+    end
+    println("tau=",tau)
+end
+#+end_src
+
 *** Calculate the weights (\(w_{i_1 i_2}\))
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
-function getWeightij(ham, tau, ET, EL, i, j)
+function getWeightij(ham, tau, ET, i, j,vec)
     dim = size(ham)[1];
     idmat = Matrix(1.0*I,dim,dim);
+    EL = diagm(ham*vec);
     numer = (idmat - tau * (ham - ET*idmat))[i,j];
-    denom = (idmat - tau * (ham - EL*idmat))[i,j];
-    println(ET," ET | ",numer)
-    println(EL," EL | ",denom)
+    denom = (idmat - tau * (ham - EL      ))[i,j];
+    #println("---- wij -----",i,j, " tau=",tau)
+    #println(ET," ET | ",numer)
+    #println(EL," EL | ",denom)
+    println(" ---- wij ----- =",numer/denom)
     if(denom==0.0)
         return typemax(Float64)
     else
@@ -416,8 +448,42 @@ function getWeightij(ham, tau, ET, EL, i, j)
 end
 #+end_src
 
+**** Testing weights
+
+#+begin_src julia
+ETlist=[3.0,1.0,0.8,0.6,0.4,0.2,0.0,-0.2,-0.4,-0.6,-0.8,-1.0,-3.0];
+weightlist = zeros(5,4);
+idxet=1;
+tau=0.1;
+#for ET in ETlist
+for tau in 0.002:0.050:0.252
+    for i in 1:2
+        for j in 1:2
+            println(i," ",j," ",getWeightij(ham,tau,ET,i,j,vec0))
+            weightlist[idxet,(i-1)*2+j] = getWeightij(ham,tau,ET,i,j,vec0);
+        end
+    end
+    println("==========tau===========",tau)
+    idxet+=1;
+end
+plt3=plot(collect(1:idxet-1),weightlist,
+         xlabel=L"E_T",
+         ylabel=L"W_i",
+#        lw=2,
+         xlims = (0,idxet-1),
+#        ylims = (-0.10,0.50),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+        thickness_scaling=1.5,
+         grid=:none,
+         marker=true,
+#        markersize=2,
+         size=(400,600)
+         )
+#+end_src
+
 #+RESULTS:
-: getWeightij (generic function with 1 method)
 
 *** Calculate min time step (\(\tau\))
 #+begin_src jupyter-julia :tangle pdmc.jl
@@ -464,7 +530,7 @@ The simulation requires the calculation of a markov chain \(i_0, i_1, i_2,
 The iteration can begin with these as starting values. The output is given in
 shown in the Figure:[[figure3]].
 
-#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results #:tangle pdmc.jl
 using Plots
 using LaTeXStrings
 using DataStructures
@@ -476,20 +542,21 @@ nu1 = 2;
 t=1;
 # Taux d'acceptation > 99%
 tau = 0.1;
-ET = 3;
+ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
 nsteps = 1*8192;
 niter = 400;
 nruns = 100;
 ham=[nu0 -t; -t nu1];
-vec0 = [c0 c1];
+vec0 = [c0, c1];
+vec0 = vec0/norm(vec0);
 e_exact,vec_exact = eigen(ham)
 #+END_SRC
 
 #+RESULTS:
 
-#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
 function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   totaldata = zeros(niter,nruns)
   totalEW     = zeros(nruns,niter)
@@ -515,8 +582,8 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       for j in 1:dim
           EL = getEL(ham, vec, i)
           EL1 = EL;
-          w12 = getWeightij(ham, tau, ET, EL1, i, j);
-          p12 = getPij(ham, tau, EL, i, j, vec)
+          w12 = getWeightij(ham, tau, ET, i, j, vec);
+          p12 = getPij(ham, tau, i, j, vec)
           if(i==j)
               elij[i] = EL;
           end
@@ -539,6 +606,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           #    j = swapij[j]
           #end
           j = doSwap(rand(),j,pij);
+          #println(j)
           if(p==1)
               weightdata[irun,p] = 1;
               weightdata2[irun,p] = 1;
@@ -560,6 +628,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       for p in 1:nsteps
           #   i = trunc(Int,floor(2*rand()))+1;
           j = doSwap(rand(),j,pij);
+          #println(j)
 
           # rotate energy window
           for idxi = 2:niter
@@ -598,16 +667,19 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
 
           i = j;
       end
+      #println(totalEW);
+      #println(totalweight);
       for j in 1:niter
          totaldata[j,irun] = totalEW[irun,j]/totalweight[irun,j]
       end
       timeloop = time() - timestart;
-      println(irun," Time =",timeloop)
-      println("10th E=",totaldata[10,irun]);
+      #println(irun," Time =",timeloop)
+      #println("10th E=",totaldata[10,irun]);
   end
   for i in 1:niter
       avgdata[i] = mean(totaldata[i,:])
       vardata[i] = var(totaldata[i,:])
+      #println(totaldata[i,:])
   end
   return(avgdata,vardata);
 end
@@ -615,12 +687,12 @@ end
 
 *** Plot results
 
-#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
 ntimes = 5
 avgdataall = zeros(niter,ntimes)
-vardataall = zeros(niter,ntimes)
+vardataall = zeros(niter,ntimes);
 idxtau = 1
-for tau in 0.002:0.020:0.082
+for tau in 0.002:0.002:0.012
     avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
@@ -664,7 +736,7 @@ A demonstration of all the different variants of QMC requires more than two stat
 | -t  | v_1 | -t  |
 | -t  | -t  | v_2 |
 
-#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
+#+BEGIN_SRC jupyter-julia :session j1 :results output :exports results #:tangle pdmc.jl
 nu0 = 1+1;
 nu1 = 2+1;
 nu2 = 3+1;
@@ -759,6 +831,11 @@ A demonstration of all the different variants of QMC requires more than two stat
 | -t  | .   | .   | -t | v_N |
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :exports results :tangle pdmc.jl
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
 nu0 = 1+0;
 nu1 = 2+0;
 nu2 = 23+0;
@@ -793,9 +870,9 @@ taumax = getTmin(ham,vec0) + 0.001
 taumax = taumax - 0.001
 #ET = getEL(ham,vec0,1)
 e_exact,vec_exact = eigen(ham)
-nsteps = 1*8192;
-niter = 400;
-nruns = 100;
+nsteps = 4*8192;
+niter = 010;
+nruns = 008;
 println("\\nu_0=",nu0)
 println("\\nu_1=",nu1)
 println("\\nu_2=",nu2)
@@ -814,19 +891,20 @@ println("tmin=",getTmin(ham,vec0))
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 ntimes = 5
-tstep = 0.001
+tstep = 0.0005
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes)
 idxtau = 1
-for tau in taumax - (ntimes+190)*tstep:tstep:taumax-tstep
+for tau in taumax - (ntimes+386)*tstep:tstep:taumax-tstep
     println(tau,"max=",taumax)
-    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
+    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,0.190);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
     if(idxtau==6)
         break;
     end
+    break;
 end
 plt2=plot(collect(1:niter),avgdataall,
          xlabel=L"n",
@@ -856,7 +934,7 @@ savefig(
 : UndefVarError: niter not defined
 :
 : Stacktrace:
-:  [1] top-level scope at In[1]:3
+:  [1] top-level scope at In[2]:3
 :  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
 :END:
 

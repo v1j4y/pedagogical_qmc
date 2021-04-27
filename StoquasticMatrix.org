@@ -521,7 +521,7 @@ end
 *** Function that does the swap
 
 #+begin_src jupyter-julia :tangle pdmc.jl :session j1
-function doSwap(randval, j, pij)
+function doSwap(randval, j, pij, pijids)
    #outj = -1
    #for (keypij,valpij) in pij[j]
    #    if randval < keypij
@@ -535,7 +535,8 @@ function doSwap(randval, j, pij)
    #    outj = valpij
    #end
    #return(outj);
-   return(collect(values(pij[j]))[searchsortedfirst(collect(keys(pij[j])),randval)])
+   #return(collect(values(pij[j]))[searchsortedfirst(collect(keys(pij[j])),randval)])
+   return(pijids[j,searchsortedfirst(collect(keys(pij[j])),randval)])
 end
 #+end_src
 
@@ -599,6 +600,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   elij = Dict();
   weightij = Dict();
   dim = size(ham)[1];
+  pijidsSorted = zeros(Int,dim,dim);
   pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
   countswaps = zeros(3);
   for i in 1:dim
@@ -618,9 +620,10 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
   for i in 1:dim
       map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
+      pijidsSorted[i,1:dim] = collect(values(pijsummed[i]))
   end
-  println("Pij =")
-  println(pij)
+  println("Pijids=")
+  println(pijidsSorted)
   println("Pij summed=")
   println(pijsummed)
   println(elij)
@@ -637,7 +640,8 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           #    j = swapij[j]
           #end
           countswaps[i] += 1;
-          j = doSwap(rand(),j,pijsummed);
+          j = doSwap(rand(),j,pijsummed,pijidsSorted);
+          #println(j)
           if(p==1)
               weightdata[irun,p] = 1;
               weightdata2[irun,p] = 1;
@@ -659,7 +663,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       for p in 1:nsteps
           #   i = trunc(Int,floor(2*rand()))+1;
           countswaps[i] += 1;
-          j = doSwap(rand(),j,pijsummed);
+          j = doSwap(rand(),j,pijsummed,pijidsSorted);
           #println(j)
 
           # rotate energy window
@@ -796,7 +800,7 @@ c1= 0.90001/sqrt(3);
 c2= 0.80/sqrt(3);
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0, c1, c2];
-vec0 = [0.7557893406837772, 0.4006573684395939, 0.30711254978700705];
+#vec0 = [0.7557893406837772, 0.4006573684395939, 0.30711254978700705];
 vec0 = vec0/norm(vec0);
 dim = size(ham)[1]
 ET = -typemax(Float64)
@@ -835,11 +839,10 @@ tstep = 0.004
 avgdataall = zeros(niter,ntimes);
 vardataall = zeros(niter,ntimes);
 idxtau = 1
-for tau in 0.0005:0.00001:0.252
+for tau in 0.05:0.01:0.252
 #for tau in taumax - (ntimes+119)*tstep:tstep:taumax-tstep
     println(tau,"max=",taumax)
-    @profile avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
-    Profile.print()
+    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
@@ -852,7 +855,7 @@ plt2=plot(collect(1:niter),avgdataall,
          ylabel=L"E_0",
 #        lw=2,
          xlims = (0,niter),
-#        ylims = (-0.10,0.50),
+         ylims = (-0.21,-0.18),
          framestyle=:box,
          guidefontsize=10,
          legendfontsize=6,
@@ -875,7 +878,7 @@ savefig(
 : UndefVarError: niter not defined
 :
 : Stacktrace:
-:  [1] top-level scope at In[2]:3
+:  [1] top-level scope at In[4]:3
 :  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
 :END:
 

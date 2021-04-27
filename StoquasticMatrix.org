@@ -380,7 +380,7 @@ ham=[nu0 -t; -t nu1];
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :eval noexport :exports results :tangle pdmc.jl
 function getEL(ham, vi, i)
-    if(vi[i]==0.0)
+    if(diag(ham)[i]==0.0)
         return typemax(Float64)
     else
         return ((ham*vi)[i]/vi[i])
@@ -388,13 +388,15 @@ function getEL(ham, vi, i)
 end
 #+end_src
 
+#+RESULTS:
+
 **** Testing Local Energy
 
 #+begin_src julia
 println(eigen(ham))
 println(getEL(ham,vec0,1))
 println(getEL(ham,vec0,2))
-#println(getEL(ham,vec0,3))
+println(getEL(ham,vec0,3))
 #+end_src
 
 *** Calculate the probability (\(P_{i\rightarrow j}\))
@@ -403,9 +405,15 @@ println(getEL(ham,vec0,2))
 function getPij(ham, tau, i, j, vec)
     dim = size(ham)[1];
     idmat = Matrix(1.0*I,dim,dim);
-    EL = diagm(ham*vec);
+    EL = zeros(dim,dim)
+    for k in 1:dim
+        EL[k,k] = getEL(ham,vec,k)
+    end
+    #println(EL)
     numer = vec[j] * (idmat - tau * (ham - EL))[i,j];
     denom = vec[i];
+    #println(numer)
+    #println(denom)
     if(denom==0.0)
         return typemax(Float64)
     else
@@ -417,7 +425,8 @@ end
 **** Testing probability
 
 #+begin_src julia
-for tau in 0.002:0.002:0.012
+taumax = getTmin(ham,vec0) + 0.001
+for tau in 0.002:0.022:taumax+0.05
     for i in 1:2
         for j in 1:2
             println(i," ",j," ",getPij(ham,tau,i,j,vec0))
@@ -425,6 +434,7 @@ for tau in 0.002:0.002:0.012
     end
     println("tau=",tau)
 end
+println(taumax)
 #+end_src
 
 *** Calculate the weights (\(w_{i_1 i_2}\))
@@ -433,12 +443,15 @@ end
 function getWeightij(ham, tau, ET, i, j,vec)
     dim = size(ham)[1];
     idmat = Matrix(1.0*I,dim,dim);
-    EL = diagm(ham*vec);
+    EL = zeros(dim,dim)
+    for k in 1:dim
+        EL[k,k] = getEL(ham,vec,k)
+    end
     numer = (idmat - tau * (ham - ET*idmat))[i,j];
     denom = (idmat - tau * (ham - EL      ))[i,j];
     #println("---- wij -----",i,j, " tau=",tau)
-    #println(ET," ET | ",numer)
-    #println(EL," EL | ",denom)
+    #println(" numer | ",numer)
+    #println(" denom | ",denom)
     println(" ---- wij ----- =",numer/denom)
     if(denom==0.0)
         return typemax(Float64)
@@ -452,7 +465,7 @@ end
 
 #+begin_src julia
 ETlist=[3.0,1.0,0.8,0.6,0.4,0.2,0.0,-0.2,-0.4,-0.6,-0.8,-1.0,-3.0];
-weightlist = zeros(5,4);
+weightlist = zeros(6,9);
 idxet=1;
 tau=0.1;
 #for ET in ETlist
@@ -460,7 +473,7 @@ for tau in 0.002:0.050:0.252
     for i in 1:2
         for j in 1:2
             println(i," ",j," ",getWeightij(ham,tau,ET,i,j,vec0))
-            weightlist[idxet,(i-1)*2+j] = getWeightij(ham,tau,ET,i,j,vec0);
+#           weightlist[idxet,(i-1)*2+j] = getWeightij(ham,tau,ET,i,j,vec0);
         end
     end
     println("==========tau===========",tau)
@@ -485,7 +498,9 @@ plt3=plot(collect(1:idxet-1),weightlist,
 
 #+RESULTS:
 
+
 *** Calculate min time step (\(\tau\))
+
 #+begin_src jupyter-julia :tangle pdmc.jl
 function getTmin(ham, vec0)
     tmin = 0
@@ -502,24 +517,30 @@ function getTmin(ham, vec0)
     return(tmin);
 end
 #+end_src
+
 *** Function that does the swap
-#+begin_src jupyter-julia :tangle pdmc.jl
+
+#+begin_src jupyter-julia :tangle pdmc.jl :session j1
 function doSwap(randval, j, pij)
-   outj = -1
-   for (keypij,valpij) in pij[j]
-       if randval < keypij
-           if isnan(keypij)
-               continue;
-           else
-               outj = valpij
-               break;
-           end
-       end
-       outj = valpij
-    end
-    return(outj);
+   #outj = -1
+   #for (keypij,valpij) in pij[j]
+   #    if randval < keypij
+   #        if isnan(keypij)
+   #            continue;
+   #        else
+   #            outj = valpij
+   #            break;
+   #        end
+   #    end
+   #    outj = valpij
+   #end
+   #return(outj);
+   return(collect(values(pij[j]))[searchsortedfirst(collect(keys(pij[j])),randval)])
 end
 #+end_src
+
+#+RESULTS:
+: doSwap (generic function with 1 method)
 
 *** Combine \(E_L\) and \(w_{ij}\) to do PDMC
 
@@ -536,6 +557,7 @@ using LaTeXStrings
 using DataStructures
 using Statistics
 using LinearAlgebra
+using Profile
 #using Plots.PlotMeasures
 nu0 = 1;
 nu1 = 2;
@@ -545,7 +567,7 @@ tau = 0.1;
 ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 1*8192;
+nsteps = 4*8192;
 niter = 400;
 nruns = 100;
 ham=[nu0 -t; -t nu1];
@@ -578,6 +600,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   weightij = Dict();
   dim = size(ham)[1];
   pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+  countswaps = zeros(3);
   for i in 1:dim
       for j in 1:dim
           EL = getEL(ham, vec, i)
@@ -591,9 +614,17 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           weightij[(i,j)] = w12
       end
   end
-    println(pij)
-    println(elij)
-    println(weightij)
+  # take sum of Pij
+  pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+  for i in 1:dim
+      map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
+  end
+  println("Pij =")
+  println(pij)
+  println("Pij summed=")
+  println(pijsummed)
+  println(elij)
+  println(weightij)
   for irun in 1:nruns
       i = rand(1:dim);
       i = 1;
@@ -605,8 +636,8 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
           #if rand() > pij[j]
           #    j = swapij[j]
           #end
-          j = doSwap(rand(),j,pij);
-          #println(j)
+          countswaps[i] += 1;
+          j = doSwap(rand(),j,pijsummed);
           if(p==1)
               weightdata[irun,p] = 1;
               weightdata2[irun,p] = 1;
@@ -627,7 +658,8 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       # do the iterations
       for p in 1:nsteps
           #   i = trunc(Int,floor(2*rand()))+1;
-          j = doSwap(rand(),j,pij);
+          countswaps[i] += 1;
+          j = doSwap(rand(),j,pijsummed);
           #println(j)
 
           # rotate energy window
@@ -681,9 +713,13 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       vardata[i] = var(totaldata[i,:])
       #println(totaldata[i,:])
   end
+    println("Swap probabilities=",countswaps/nsteps);
   return(avgdata,vardata);
 end
 #+end_src
+
+#+RESULTS:
+: doPDMC (generic function with 1 method)
 
 *** Plot results
 
@@ -692,11 +728,14 @@ ntimes = 5
 avgdataall = zeros(niter,ntimes)
 vardataall = zeros(niter,ntimes);
 idxtau = 1
-for tau in 0.002:0.002:0.012
+for tau in 0.001:0.004:0.112
     avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
+    if(idxtau==6)
+        break;
+    end
 end
 plt=plot(collect(1:niter),avgdataall,
          xlabel=L"n",
@@ -720,6 +759,16 @@ savefig(
     ,"/home/vijay/Documents/pedagogical_qmc/figure3.pdf");
 #+end_src
 
+#+RESULTS:
+:RESULTS:
+# [goto error]
+: UndefVarError: niter not defined
+:
+: Stacktrace:
+:  [1] top-level scope at In[3]:2
+:  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
+:END:
+
 #+CAPTION: Convergence of the Local energy as a function of iterations(PDMC).
 #+ATTR_LATEX: :width 15cm
 #+NAME: figure3
@@ -737,16 +786,17 @@ A demonstration of all the different variants of QMC requires more than two stat
 | -t  | -t  | v_2 |
 
 #+BEGIN_SRC jupyter-julia :session j1 :results output :exports results #:tangle pdmc.jl
-nu0 = 1+1;
-nu1 = 2+1;
-nu2 = 3+1;
+nu0 = 1;
+nu1 = 2;
+nu2 = 3;
 t=1;
-tau = 0.01;
-c0= 1.00/sqrt(3);
-c1= 1.001/sqrt(3);
-c2= 1.00001/sqrt(3);
+tau = 0.24;
+c0= 1.001/sqrt(3);
+c1= 0.90001/sqrt(3);
+c2= 0.80/sqrt(3);
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
-vec0 = [c0 c1 c2];
+vec0 = [c0, c1, c2];
+vec0 = [0.7557893406837772, 0.4006573684395939, 0.30711254978700705];
 vec0 = vec0/norm(vec0);
 dim = size(ham)[1]
 ET = -typemax(Float64)
@@ -782,12 +832,14 @@ println("tmin=",getTmin(ham,vec0))
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 ntimes = 5
 tstep = 0.004
-avgdataall = zeros(niter,ntimes)
-vardataall = zeros(niter,ntimes)
+avgdataall = zeros(niter,ntimes);
+vardataall = zeros(niter,ntimes);
 idxtau = 1
-for tau in taumax - (ntimes+119)*tstep:tstep:taumax-tstep
+for tau in 0.0005:0.00001:0.252
+#for tau in taumax - (ntimes+119)*tstep:tstep:taumax-tstep
     println(tau,"max=",taumax)
-    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
+    @profile avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
+    Profile.print()
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
@@ -816,6 +868,16 @@ savefig(
     plt
     ,"/home/vijay/Documents/pedagogical_qmc/figure4.pdf");
 #+end_src
+
+#+RESULTS:
+:RESULTS:
+# [goto error]
+: UndefVarError: niter not defined
+:
+: Stacktrace:
+:  [1] top-level scope at In[2]:3
+:  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
+:END:
 
 *** NxN matrix
 

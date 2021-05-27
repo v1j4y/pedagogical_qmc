@@ -37,6 +37,7 @@ shown in Eq:[[mat2x2]]
 
 **** Initialization
 
+#+name: var2x2
 #+begin_src julia
 using Plots
 using LaTeXStrings
@@ -62,6 +63,25 @@ niter = 400;
 nruns = 100;
 ham=[nu0 -t; -t nu1];
 vec0 = [c0, c1];
+vec0 = vec0/norm(vec0);
+e_exact,vec_exact = eigen(ham)
+#+end_src
+
+#+name: var3x3
+#+begin_src julia
+nu0 = 1;
+nu1 = 2;
+nu2 = 3;
+t=1;
+# Trial energy
+ET = 2.0
+# Taux d'acceptation > 99%
+tau = 0.10;
+c0= 1.001/sqrt(3);
+c1= 0.90001/sqrt(3);
+c2= 0.80/sqrt(3);
+ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
+vec0 = [c0, c1, c2];
 vec0 = vec0/norm(vec0);
 e_exact,vec_exact = eigen(ham)
 #+end_src

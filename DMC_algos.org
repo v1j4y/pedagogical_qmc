@@ -1,0 +1,239 @@
+#+title:     Pedagogical DMC Algorithms
+#+author:    Vijay Gopal Chilkuri
+#+email:     vijay.gopal.c@gmail.com
+#+LATEX_HEADER: \usepackage{bbold}
+#+LATEX_HEADER: \usepackage{braket}
+#+LATEX_HEADER: \usepackage{amsmath,amssymb}
+
+* Deterministic Algorithms
+
+** Projector algorithm
+
+*** Description
+
+Projector algoithm relies on the fact that given
+a trial wavefunction \(\nu\) with a non-zero overlap with
+the exact wavefunction \(\mathbf{u}_0\), Eq:[[vecbasis]], a large number of application
+of the Hamiltonian \(\hat{H}\) the series \(\left{\psi, \hat{H}\psi, \hat{H}^2\psi,\dots\) converges
+to the exact wavefunction.
+
+#+NAME: vecbasis
+\begin{equation}
+\mathbf{\nu} = c_0 \mathbf{u_0} + c_1 \mathbf{u_1}
+\end{equation}
+
+*** Example
+
+The simplest example consists of a 2x2 Hamiltonian matrix
+shown in Eq:[[mat2x2]]
+
+#+NAME: mat2x2
+#+ATTR_LATEX: :mode math :environment bmatrix :align cc
+#+tblname: mat2x2
+| v_0 | -t  |
+| -t  | v_1 |
+
+*** Code
+
+**** Initialization
+
+#+begin_src julia
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
+using Profile
+
+# Vars
+nu0 =  1;
+nu0 = 1;
+nu1 = 2;
+t=1;
+# Trial energy
+ET = 2.0
+# Taux d'acceptation > 99%
+tau = 0.1;
+ET = 3.0;
+c0=2/sqrt(2);
+c1=1/sqrt(2);
+nsteps = 4*8192;
+niter = 400;
+nruns = 100;
+ham=[nu0 -t; -t nu1];
+vec0 = [c0, c1];
+vec0 = vec0/norm(vec0);
+e_exact,vec_exact = eigen(ham)
+#+end_src
+
+**** Algorithm
+
+#+BEGIN_SRC julia :session j1 :results results :eval noexport :exports results
+avgdataall = zeros(niter,2);
+vec = vec0;
+vec2 = vec0;
+gh = Matrix(I,2,2) - tau * (ham - Matrix(I,2,2)*(ET));
+gh2 = (ham - Matrix(I,2,2)*(ET));
+for i in 1:niter
+    avgdataall[i,1] = transpose(vec)*(ham*vec);
+    avgdataall[i,2] = transpose(vec2)*(ham*vec2);
+    vec = gh*vec;
+    vec = vec/norm(vec);
+    vec2 = gh2*vec2;
+    vec2 = vec2/norm(vec2);
+end
+#avgdataall[:,2] = avgdataall[:,2] .+ ET;
+plt=plot(collect(1:niter),avgdataall,
+         xlabel=L"n",
+         ylabel=L"E_0",
+         xlims = (0,10),
+#        ylims = (0.36,0.48),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+         thickness_scaling=1.5,
+         grid=:none,
+         size=(400,600),
+         )
+#+end_src
+
+
+* Stochastic Algorithm
+
+** Pure Diffusion Monte Carlo
+
+*** Description
+
+The stochastic version of the algorithm consists
+of two steps.
+
+Step 1 - The calculation of the Energy.
+    This is the variational step which is performed
+    using Variational Monte Carlo (VMC). Here we
+    calculate the energy of the trial wavefunction \(\nu\).
+
+Step 2 - The projection of the wavefunction.
+    In this step, we perform the evolution of the
+    wavefunction according to some diffusion process.
+    There are different ways to carry out the projection
+    and depending on the kernel used, one can obtain
+    the following different methods:
+
+    1. Evolution based on \(\hat{H}\) : Pure Diffusion Monte Carlo
+
+    2. Eolution based on \(\hat{G}\) (the Green's function) :
+       Greens Function Monte Carlo
+
+       etc...
+
+Here we use the PDMC version for the projection step.
+
+**** VMC Step
+
+The variational energy is estimated using VMC. In this step,
+we evaluate \(\left<\nu|\hat{H}|\nu\right>\) stochastically for a given trial wavefunction \(\nu\). This is done using Metropolis sampling using the transition
+probability given as in Eq:[[transprob]]:
+
+#+NAME: transprob
+\begin{equation}
+P_{i\rightarrow j} = \frac{c_j}{c_i}\left[ \mathbb{1} - \tau\left( \hat{H} - E_L\right) \right]_{ij}
+\end{equation}
+
+At each MC step, the local energy is evaluated using Eq:[[elocal1]]
+
+#+NAME: elocal1
+\begin{equation}
+[E_{L}]_{ij} = \delta_{ij}E_L(i)
+\end{equation}
+
+#+NAME: elocal2
+\begin{equation}
+E_{L}(i) = \frac{[\hat{H}\mathbf{\nu}]_i}{v_i}
+\end{equation}
+
+
+***** Code
+
+#+name: calc_local_energy
+#+begin_src julia
+function getEL(ham, vi, i)
+    if(vi[i]==0.0)
+        return typemax(Float64)
+    else
+        return ((ham*vi)[i]/vi[i])
+    end
+end
+#+end_src
+
+#+name: prepare_pij_list
+#+begin_src julia
+function getPij(ham, tau, i, j, vec)
+    dim = size(ham)[1];
+    idmat = Matrix(1.0*I,dim,dim);
+    EL = zeros(dim,dim)
+    for k in 1:dim
+        EL[k,k] = getEL(ham,vec,k)
+    end
+    numer = vec[j] * (idmat - tau * (ham - EL))[i,j];
+    denom = vec[i];
+    if(denom==0.0)
+        return typemax(Float64)
+    else
+        return(numer/denom)
+    end
+end
+#+end_src
+
+#+name: swap_states
+#+begin_src julia
+function doSwap(randval, j, pij, pijids)
+   return(pijids[j,searchsortedfirst(collect(keys(pij[j])),randval)])
+end
+#+end_src
+
+#+name: prepare_pij_lists
+#+begin_src julia
+function prepare_pij(ham, vec, ET, tau)
+    dim = size(ham)[1];
+    pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    countswaps = zeros(dim);
+    elij = Dict();
+    for i in 1:dim
+        for j in 1:dim
+            EL = getEL(ham, vec, i)
+            EL1 = EL;
+            p12 = getPij(ham, tau, i, j, vec)
+            if(i==j)
+                elij[i] = EL;
+            end
+            pij[i][p12] = j
+        end
+    end
+    # take sum of Pij
+    pijidsSorted = zeros(Int,dim,dim);
+    pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    for i in 1:dim
+        map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
+        pijidsSorted[i,1:dim] = collect(values(pijsummed[i]))
+    end
+    return(pijsummed,pijidsSorted, elij)
+end
+#+end_src
+
+#+begin_src julia
+pijsummed,pijidsSorted, elij = prepare_pij(ham, vec0, ET, tau);
+energylist = zeros(nruns,nsteps);
+localenergy = zeros(nruns);
+for irun in 1:nruns
+    elocal = 0.0;
+    j = 1;
+    for istep in 1:nsteps
+        j = doSwap(rand(),j,pijsummed,pijidsSorted);
+        energylist[irun,istep] = elij[j];
+        i = j;
+    end
+    localenergy[irun] = mean(energylist[irun,:]);
+end
+mean(localenergy)
+var(localenergy)
+#+end_src

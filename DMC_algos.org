@@ -313,12 +313,12 @@ a lower local enrergy \(E_L(i)\).
 
 #+name: getweights
 #+begin_src julia
-function getWeightij(ham, tau, ET, i, j,vec,elij)
+function getWeightij(ham, tau, ET, i, j,ELi)
     if(i!=j)
         return(1.0);
     else
         numer = (1.0 - tau * ham[i,i] + tau * ET);
-        denom = (1.0 - tau * ham[i,i] + tau * elij[i]);
+        denom = (1.0 - tau * ham[i,i] + tau * ELi);
         if(denom==0.0)
             return typemax(Float64)
         else
@@ -328,24 +328,106 @@ function getWeightij(ham, tau, ET, i, j,vec,elij)
 end
 #+end_src
 
+#+name: prepare_pij_lists_with_weights
+#+begin_src julia
+function prepare_pij_wij(ham, vec, ET, tau)
+    dim = size(ham)[1];
+    pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    countswaps = zeros(dim);
+    elij = Dict();
+    weightij = Dict();
+    for i in 1:dim
+        for j in 1:dim
+            EL = getEL(ham, vec, i)
+            EL1 = EL;
+function getWeightij(ham, tau, ET, i, j,vec, ELi)
+            w12 = getWeightij(ham, tau, ET, i, j, EL);
+            p12 = getPij(ham, tau, i, j, vec)
+            if(i==j)
+                elij[i] = EL;
+            end
+            pij[i][p12] = j
+            weightij[(i,j)] = w12
+        end
+    end
+    # take sum of Pij
+    pijidsSorted = zeros(Int,dim,dim);
+    pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    for i in 1:dim
+        map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
+        pijidsSorted[i,1:dim] = collect(values(pijsummed[i]))
+    end
+    return(pijsummed,pijidsSorted, elij, weightij)
+end
+#+end_src
+
 #+name: pdmc_algo
 #+begin_src julia
-niter = 2;
-pijsummed,pijidsSorted, elij = prepare_pij(ham, vec0, ET, tau);
+niter = 3;
+pijsummed,pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
 localenergy = zeros(nruns,niter);
 weightslist = zeros(niter);
 for irun in 1:nruns
+    # E_0
     elocal = 0.0;
     j = 1;
     i = j;
     for istep in 1:nsteps
         j = doSwap(rand(),j,pijsummed,pijidsSorted);
-        elocal = elij[j];
+        elocal += elij[j];
         i = j;
     end
-    localenergy[irun] = elocal/nsteps;
+    localenergy[irun,1] = elocal/nsteps;
+    # E_1
+    elocal = 0.0;
+    wlocal = 0.0;
+    j = 1;
+    i = j;
+    for istep in 1:nsteps
+        j = doSwap(rand(),j,pijsummed,pijidsSorted);
+        weightslist[1] = weightij[(i,j)];
+        elocal += elij[j]*weightslist[1];
+        wlocal += weightslist[1];
+        i = j;
+    end
+    localenergy[irun,2] = elocal/wlocal;
+    # E_2
+    elocal = 0.0;
+    wlocal = 1.0;
+    wlocaltot = 0.0;
+    wlocalprev = 1.0;
+    j = 1;
+    j = doSwap(rand(),j,pijsummed,pijidsSorted);
+    wlocal *= weightij[(i,j)];
+    weightslist[1] = weightij[(i,j)];
+    i = j;
+    j = doSwap(rand(),j,pijsummed,pijidsSorted);
+    wlocal *= weightij[(i,j)];
+    weightslist[2] = weightij[(i,j)];
+    i = j;
+    for istep in 1:nsteps
+        elocal += elij[j]*wlocal;
+        wlocaltot += wlocal;
+        j = doSwap(rand(),j,pijsummed,pijidsSorted);
+        wlocalprev = weightslist[((istep-1)%2)+1];
+        wlocal = wlocal * weightij[(i,j)]/wlocalprev;
+        weightslist[((istep-1)%2)+1] = weightij[(i,j)];
+        i = j;
+    end
+    localenergy[irun,3] = elocal/wlocaltot;
 end
-mean(localenergy)
-var(localenergy)
+mean(localenergy[:,1])
+var(localenergy[:,1])
+mean(localenergy[:,2])
+var(localenergy[:,2])
+mean(localenergy[:,3])
+var(localenergy[:,3])
+#+end_src
 
+* Testing
+
+#+begin_src julia
+for i in 1:12
+    println(((i-1)%2)+1)
+end
 #+end_src

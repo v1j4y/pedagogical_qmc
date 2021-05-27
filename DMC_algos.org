@@ -159,6 +159,18 @@ probability given as in Eq:[[transprob]]:
 P_{i\rightarrow j} = \frac{c_j}{c_i}\left[ \mathbb{1} - \tau\left( \hat{H} - E_L\right) \right]_{ij}
 \end{equation}
 
+This probability corresponds to the Metropolis acceptance
+probabiliy. To generate the Markov chain, a random number
+is generated and the state for a given \(i\) is chosen
+from all the candidate states according to the rule below:
+
+#+NAME: acceptancerule
+\begin{align}
+j_1\ &\text{if}\ \xi \in (0,\mathcal{P}_1) \\
+j_2\ &\text{if}\ \xi \in (\mathcal{P}_1,\mathcal{P}_1 + \mathcal{P}_2)\\
+j_k\ &\text{if}\ \xi \in (\sum_{k-1}\mathcal{P}_k,\sum_{k}\mathcal{P}_k )
+\end{align}
+
 At each MC step, the local energy is evaluated using Eq:[[elocal1]]
 
 #+NAME: elocal1
@@ -171,6 +183,14 @@ At each MC step, the local energy is evaluated using Eq:[[elocal1]]
 E_{L}(i) = \frac{[\hat{H}\mathbf{\nu}]_i}{v_i}
 \end{equation}
 
+The VMC energy is evaluate as the mean of the values for
+each MC step in the Markov chain Eq:[[vmcenergy]]
+
+#+NAME: vmcenergy
+\begin{equation}
+E_{0}(0) = \frac{E_L(i_0) + E_L(i_1) + E_L(i_2) + \dots}
+{1 + 1 + 1 + \dots}
+\end{equation}
 
 ***** Code
 
@@ -240,20 +260,92 @@ function prepare_pij(ham, vec, ET, tau)
 end
 #+end_src
 
+#+name: vmc_algo
 #+begin_src julia
 pijsummed,pijidsSorted, elij = prepare_pij(ham, vec0, ET, tau);
-energylist = zeros(nruns,nsteps);
 localenergy = zeros(nruns);
 for irun in 1:nruns
     elocal = 0.0;
     j = 1;
     for istep in 1:nsteps
         j = doSwap(rand(),j,pijsummed,pijidsSorted);
-        energylist[irun,istep] = elij[j];
+        elocal += elij[j];
         i = j;
     end
-    localenergy[irun] = mean(energylist[irun,:]);
+    localenergy[irun] = elocal/nsteps;
 end
 mean(localenergy)
 var(localenergy)
+#+end_src
+
+**** PDMC Step
+
+PDMC is the step which performs the projection i.e.
+the application of \(\hat{H}\) on the trial wavefunction \(\nu\). This
+is acheived using weights \(w_{ij}\) which take into account
+the trial density differs from the exact density.
+
+The weights \(w_{ij}\) are defined as shown in Eq:[[weights]]
+
+#+NAME: weights
+\begin{equation}
+w_{ij} = \frac
+{\left[ \mathbb{1} - \tau\left( \hat{H} - E_T\right) \right]_{ij}}
+{\left[ \mathbb{1} - \tau\left( \hat{H} - E_L\right) \right]_{ij}}
+\end{equation}
+
+The weights have the property that the extra-diagonal
+element of the weight matrix \(w_{ij}\) is \(1\)
+whereas the diagonal element \(w_{ii}\) is proportional to the
+ratio of \(E_T\) over \(E_L(i)\) Eq:[[weightdiag]].
+
+#+NAME: weightdiag
+\begin{equation}
+w_{ii} = \frac
+{\left[ \left(\mathbb{1} - \tau H_{ii})+\tau E_T\right \right]}
+{\left[ \left(\mathbb{1} - \tau H_{ii})+\tau E_L(i)\right \right]}
+\end{equation}
+
+Weights favor those states in the Markov chain which have
+a lower local enrergy \(E_L(i)\).
+
+***** Code
+
+#+name: getweights
+#+begin_src julia
+function getWeightij(ham, tau, ET, i, j,vec,elij)
+    if(i!=j)
+        return(1.0);
+    else
+        numer = (1.0 - tau * ham[i,i] + tau * ET);
+        denom = (1.0 - tau * ham[i,i] + tau * elij[i]);
+        if(denom==0.0)
+            return typemax(Float64)
+        else
+            return(numer/denom)
+        end
+    end
+end
+#+end_src
+
+#+name: pdmc_algo
+#+begin_src julia
+niter = 2;
+pijsummed,pijidsSorted, elij = prepare_pij(ham, vec0, ET, tau);
+localenergy = zeros(nruns,niter);
+weightslist = zeros(niter);
+for irun in 1:nruns
+    elocal = 0.0;
+    j = 1;
+    i = j;
+    for istep in 1:nsteps
+        j = doSwap(rand(),j,pijsummed,pijidsSorted);
+        elocal = elij[j];
+        i = j;
+    end
+    localenergy[irun] = elocal/nsteps;
+end
+mean(localenergy)
+var(localenergy)
+
 #+end_src

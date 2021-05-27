@@ -452,7 +452,7 @@ function getWeightij(ham, tau, ET, i, j,vec)
     #println("---- wij -----",i,j, " tau=",tau)
     #println(" numer | ",numer)
     #println(" denom | ",denom)
-    println(" ---- wij ----- =",numer/denom)
+    #println(" ---- wij ----- =",numer/denom)
     if(denom==0.0)
         return typemax(Float64)
     else
@@ -540,9 +540,6 @@ function doSwap(randval, j, pij, pijids)
 end
 #+end_src
 
-#+RESULTS:
-: doSwap (generic function with 1 method)
-
 *** Combine \(E_L\) and \(w_{ij}\) to do PDMC
 
 The simulation requires the calculation of a markov chain \(i_0, i_1, i_2,
@@ -600,14 +597,14 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
   elij = Dict();
   weightij = Dict();
   dim = size(ham)[1];
-  pijidsSorted = zeros(Int,dim,dim);
   pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
-  countswaps = zeros(3);
+  countswaps = zeros(dim);
   for i in 1:dim
       for j in 1:dim
           EL = getEL(ham, vec, i)
           EL1 = EL;
           w12 = getWeightij(ham, tau, ET, i, j, vec);
+          println("i=",i," j=",j," ",getPij(ham,tau,i,j,vec))
           p12 = getPij(ham, tau, i, j, vec)
           if(i==j)
               elij[i] = EL;
@@ -617,6 +614,7 @@ function doPDMC(ham,vec,niter,nruns,nsteps,tau)
       end
   end
   # take sum of Pij
+  pijidsSorted = zeros(Int,dim,dim);
   pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
   for i in 1:dim
       map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
@@ -913,15 +911,15 @@ c0= 1.00000
 c1= 1.10000
 c2= 1.01000
 c3= 1.00100
-c4= 1.00100
-c5= 1.00010
+c4= 1.10100
+c5= 1.11010
 ham=[nu0 -t   -t  -t  -t   -t;
      -t   nu1 -t  -t  -t   -t;
      -t   -t  nu2 -t  -t   -t;
      -t   -t  -t  nu3 -t   -t;
      -t   -t  -t  -t  nu4  -t;
      -t   -t  -t  -t  -t  nu5;]*1.0;
-vec0 = [c0 c1 c2 c3 c4 c5];
+vec0 = [c0, c1, c2, c3, c4, c5];
 vec0 = vec0/norm(vec0);
 dim = size(ham)[1]
 ET = -typemax(Float64)
@@ -936,8 +934,8 @@ taumax = taumax - 0.001
 #ET = getEL(ham,vec0,1)
 e_exact,vec_exact = eigen(ham)
 nsteps = 4*8192;
-niter = 010;
-nruns = 008;
+niter = 400;
+nruns = 100;
 println("\\nu_0=",nu0)
 println("\\nu_1=",nu1)
 println("\\nu_2=",nu2)
@@ -957,26 +955,26 @@ println("tmin=",getTmin(ham,vec0))
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results :tangle pdmc.jl
 ntimes = 5
 tstep = 0.0005
-avgdataall = zeros(niter,ntimes)
-vardataall = zeros(niter,ntimes)
+avgdataall = zeros(niter,ntimes);
+vardataall = zeros(niter,ntimes);
 idxtau = 1
-for tau in taumax - (ntimes+386)*tstep:tstep:taumax-tstep
+#for tau in taumax - (ntimes+386)*tstep:tstep:taumax-tstep
+for tau in 0.0010:0.0010:0.252
     println(tau,"max=",taumax)
-    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,0.190);
+    avgdata,vardata = doPDMC(ham,vec0,niter,nruns,nsteps,tau);
     avgdataall[:,idxtau] = avgdata
     vardataall[:,idxtau] = vardata
     idxtau += 1
     if(idxtau==6)
         break;
     end
-    break;
 end
 plt2=plot(collect(1:niter),avgdataall,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
          xlims = (0,niter),
-#        ylims = (-0.10,0.50),
+         ylims = (-1.10,12.50),
          framestyle=:box,
          guidefontsize=10,
          legendfontsize=6,
@@ -987,7 +985,7 @@ plt2=plot(collect(1:niter),avgdataall,
          size=(400,600),
         ribbon=vardataall
          )
-plot!([[-0.5]],seriestype=:hline);
+plot!([[1.03]],seriestype=:hline);
 savefig(
     plt
     ,"/home/vijay/Documents/pedagogical_qmc/figure4.pdf");
@@ -999,7 +997,7 @@ savefig(
 : UndefVarError: niter not defined
 :
 : Stacktrace:
-:  [1] top-level scope at In[2]:3
+:  [1] top-level scope at In[6]:3
 :  [2] include_string(::Function, ::Module, ::String, ::String) at ./loading.jl:1091
 :END:
 

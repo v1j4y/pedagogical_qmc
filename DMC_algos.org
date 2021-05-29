@@ -84,16 +84,58 @@ t=1;
 # Trial energy
 ET = 2.0
 # Taux d'acceptation > 99%
-tau = 0.10;
+tau = 0.05;
 c0= 1.001/sqrt(3);
 c1= 0.90001/sqrt(3);
 c2= 0.80/sqrt(3);
 nsteps = 4*8192;
-niter = 400;
+niter = 40;
 nruns = 100;
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0, c1, c2];
 vec0 = vec0/norm(vec0);
+e_exact,vec_exact = eigen(ham)
+#+end_src
+
+#+name: var6x6
+#+begin_src julia
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
+using Profile
+
+# Vars
+t=1;
+# Trial energy
+ET = 2.0
+# Taux d'acceptation > 99%
+tau = 0.10;
+nu0 = 1+0;
+nu1 = 2+0;
+nu2 = 3+0;
+nu3 = 4+0;
+nu4 = 5+0;
+nu5 = 6+0;
+tau = 0.01;
+c0= 1.00000
+c1= 1.10000
+c2= 1.01000
+c3= 1.00100
+c4= 1.10100
+c5= 1.11010
+ham=[nu0 -t   -t  -t  -t   -t;
+     -t   nu1 -t  -t  -t   -t;
+     -t   -t  nu2 -t  -t   -t;
+     -t   -t  -t  nu3 -t   -t;
+     -t   -t  -t  -t  nu4  -t;
+     -t   -t  -t  -t  -t  nu5;]*1.0;
+vec0 = [c0, c1, c2, c3, c4, c5];
+vec0 = vec0/norm(vec0);
+nsteps = 4*8192;
+niter = 100;
+nruns = 100;
 e_exact,vec_exact = eigen(ham)
 #+end_src
 
@@ -514,6 +556,33 @@ println(mean(localenergy[:,2]),var(localenergy[:,2]))
 println(mean(localenergy[:,3]),var(localenergy[:,3]))
 #+end_src
 
+***** Plots
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
+meanenerlist = zeros(niter);
+varenerlist = zeros(niter);
+localenergy = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
+for it in 1:niter
+    meanenerlist[it] = mean(localenergy[:,it]);
+    varenerlist[it] = var(localenergy[:,it]);
+end
+plt=plot(collect(1:niter),meanenerlist,
+         xlabel=L"n",
+         ylabel=L"E_0",
+#        lw=2,
+         xlims = (0,niter),
+#         ylims = (0.36,0.48),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+         thickness_scaling=1.5,
+         grid=:none,
+#        marker=true,
+#        markersize=2,
+         size=(400,600),
+         ribbon=varenerlist
+         )
+#+end_src
 * Testing
 
 #+begin_src julia

@@ -69,6 +69,14 @@ e_exact,vec_exact = eigen(ham)
 
 #+name: var3x3
 #+begin_src julia
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
+using Profile
+
+# Vars
 nu0 = 1;
 nu1 = 2;
 nu2 = 3;
@@ -80,6 +88,9 @@ tau = 0.10;
 c0= 1.001/sqrt(3);
 c1= 0.90001/sqrt(3);
 c2= 0.80/sqrt(3);
+nsteps = 4*8192;
+niter = 400;
+nruns = 100;
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0, c1, c2];
 vec0 = vec0/norm(vec0);
@@ -129,7 +140,7 @@ of two steps.
 
 Step 1 - The calculation of the Energy.
     This is the variational step which is performed
-    using Variational Monte Carlo (VMC). Here we
+    using variational Monte Carlo (VMC). Here we
     calculate the energy of the trial wavefunction \(\nu\).
 
 Step 2 - The projection of the wavefunction.
@@ -141,7 +152,7 @@ Step 2 - The projection of the wavefunction.
 
     1. Evolution based on \(\hat{H}\) : Pure Diffusion Monte Carlo
 
-    2. Eolution based on \(\hat{G}\) (the Green's function) :
+    2. Evolution based on \(\hat{G}\) (the Green's function) :
        Greens Function Monte Carlo
 
        etc...
@@ -160,7 +171,7 @@ P_{i\rightarrow j} = \frac{c_j}{c_i}\left[ \mathbb{1} - \tau\left( \hat{H} - E_L
 \end{equation}
 
 This probability corresponds to the Metropolis acceptance
-probabiliy. To generate the Markov chain, a random number
+probability. To generate the Markov chain, a random number
 is generated and the state for a given \(i\) is chosen
 from all the candidate states according to the rule below:
 
@@ -307,7 +318,7 @@ w_{ii} = \frac
 \end{equation}
 
 Weights favor those states in the Markov chain which have
-a lower local enrergy \(E_L(i)\).
+a lower local energy \(E_L(i)\).
 
 ***** Code
 
@@ -340,7 +351,6 @@ function prepare_pij_wij(ham, vec, ET, tau)
         for j in 1:dim
             EL = getEL(ham, vec, i)
             EL1 = EL;
-function getWeightij(ham, tau, ET, i, j,vec, ELi)
             w12 = getWeightij(ham, tau, ET, i, j, EL);
             p12 = getPij(ham, tau, i, j, vec)
             if(i==j)
@@ -361,7 +371,7 @@ function getWeightij(ham, tau, ET, i, j,vec, ELi)
 end
 #+end_src
 
-#+name: pdmc_algo
+#+name: pdmc_algo_simple
 #+begin_src julia
 niter = 3;
 pijsummed,pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
@@ -424,10 +434,119 @@ mean(localenergy[:,3])
 var(localenergy[:,3])
 #+end_src
 
+#+name: pdmc_algo
+#+begin_src julia
+function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
+    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
+    localenergy = zeros(nruns, niter);
+    weightlist = zeros(niter);
+    prodweightlist = zeros(niter);
+    idweightlist = zeros(niter);
+    for irun in 1:nruns
+        # Initialize lists
+        elocaltot = zeros(niter);
+        wlocaltot = zeros(niter);
+        j = 1;
+        i = j;
+        wlocal = 1.0;
+
+        # Prepare weight list
+        for it in 1:niter
+            # Perform MC step
+            j = doSwap(rand(),j,pijsummed,pijidsSorted);
+
+            # Initialize weightlist
+            weightlist[it]     = weightij[(i,j)];
+
+            # Save current state
+            i = j;
+        end
+
+        # Prepare prodweightlist
+        for it in niter:-1:1
+            prodweightlist[niter-it+1] = wlocal * weightlist[it];
+            wlocal = wlocal * weightlist[it];
+        end
+
+        # Do PDMC
+        for istep in 1:nsteps
+            # Calculate elocal and wlocal
+            for it in 1:niter
+               elocaltot[it] += elij[j] * prodweightlist[it];
+               wlocaltot[it] += prodweightlist[it];
+            end
+
+            # Perform MC step
+            j = doSwap(rand(),j,pijsummed,pijidsSorted);
+
+            # Calculate new weights
+            wlocal = weightij[(i,j)];
+            for it in 1:niter-1
+                idxdel = (((istep-1 + (niter-it)) % niter) + 1);
+                idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
+                wprev = weightlist[idxdel];
+                wnew  = weightlist[idxnew];
+                prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+            end
+            idxnew = (((istep-1) % niter) + 1);
+            wprev = weightlist[idxnew];
+            weightlist[idxnew] = weightij[(i,j)];
+            prodweightlist[niter] = prodweightlist[niter] * weightij[(i,j)]/wprev;
+
+            # Save current state
+            i = j;
+        end
+
+        # Fill global list
+        for it in 1:niter
+            localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
+        end
+    end
+    return(localenergy);
+end
+#+end_src
+
+#+name: testing
+#+begin_src julia
+localenergy = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
+println(mean(localenergy[:,1]),var(localenergy[:,1]))
+println(mean(localenergy[:,2]),var(localenergy[:,2]))
+println(mean(localenergy[:,3]),var(localenergy[:,3]))
+#+end_src
+
 * Testing
 
 #+begin_src julia
-for i in 1:12
-    println(((i-1)%2)+1)
+tmpnmax = 16
+tmparray = zeros(tmpnmax);
+map(x->tmparray[x]=x,collect(1:tmpnmax));
+for i in 1:tmpnmax
+    idx8 = (((i-1)%8)+1)
+    idx5 = (((i-1 + 3)%8)+1)
+    idx4 = (((i-1 + 4)%8)+1)
+    idx3 = (((i-1 + 5)%8)+1)
+    println(idx8,"\t",tmparray[idx8])
+    println("\t---",idx5, "\t---",idx4, "\t---",idx3)
+    idx5 = (((i-1 + 3 + 5 - 1)%8)+1)
+    idx4 = (((i-1 + 4 + 4 - 1)%8)+1)
+    idx3 = (((i-1 + 5 + 3 - 1)%8)+1)
+    println("\t---",idx5, "\t---",idx4, "\t---",idx3)
 end
 #+end_src
+
+#+RESULTS:
+
+--------    --------    --------    --------
+12345678    12345678    12345678    12345678
+***-----    ****----    *****---    ******--
+   12345        1234         123          12
+
+--------    --------    --------    --------
+12345678    12345678    12345678    12345678
+-***----    -****---    -*****--    -******-
+5   1234    4    123    3     12    2      1
+
+--------    --------    --------    --------
+12345678    12345678    12345678    12345678
+--***---    --****--    --*****-    --******
+45   123    34    12    23     1    12

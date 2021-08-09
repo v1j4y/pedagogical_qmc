@@ -54,13 +54,14 @@ t=1;
 # Trial energy
 ET = 2.0
 # Taux d'acceptation > 99%
-tau = 0.1;
+tau = 0.04;
 ET = 3.0;
-c0=2/sqrt(2);
+c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 4*8192;
+nsteps = 1*8192;
 niter = 400;
 nruns = 100;
+nwalker = 2;
 ham=[nu0 -t; -t nu1];
 vec0 = [c0, c1];
 vec0 = vec0/norm(vec0);
@@ -201,6 +202,8 @@ Step 2 - The projection of the wavefunction.
 
 Here we use the PDMC version for the projection step.
 
+*** Algorithm
+
 **** VMC Step
 
 The variational energy is estimated using VMC. In this step,
@@ -332,6 +335,8 @@ var(localenergy)
 #+end_src
 
 **** PDMC Step
+
+***** Formulae
 
 PDMC is the step which performs the projection i.e.
 the application of \(\hat{H}\) on the trial wavefunction \(\nu\). This
@@ -498,7 +503,7 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
             j = doSwap(rand(),j,pijsummed,pijidsSorted);
 
             # Initialize weightlist
-            weightlist[it]     = weightij[(i,j)];
+            weightlist[it] = weightij[(i,j)];
 
             # Save current state
             i = j;
@@ -525,15 +530,17 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
             wlocal = weightij[(i,j)];
             for it in 1:niter-1
                 idxdel = (((istep-1 + (niter-it)) % niter) + 1);
-                idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
+                #idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
+                #idxnew = (((istep) % niter) + 0);
                 wprev = weightlist[idxdel];
-                wnew  = weightlist[idxnew];
+                #wnew  = weightlist[idxnew];
+                wnew  = wlocal;
                 prodweightlist[it] = prodweightlist[it] * wnew/wprev;
             end
             idxnew = (((istep-1) % niter) + 1);
             wprev = weightlist[idxnew];
             weightlist[idxnew] = weightij[(i,j)];
-            prodweightlist[niter] = prodweightlist[niter] * weightij[(i,j)]/wprev;
+            prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
 
             # Save current state
             i = j;
@@ -542,11 +549,14 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
         # Fill global list
         for it in 1:niter
             localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
+            #localenergy[irun,it] = elocaltot[it];
         end
     end
     return(localenergy);
 end
 #+end_src
+
+#+RESULTS: pdmc_algo
 
 #+name: testing
 #+begin_src julia
@@ -583,9 +593,86 @@ plt=plot(collect(1:niter),meanenerlist,
          ribbon=varenerlist
          )
 #+end_src
+
+** Diffusion Monte Carlo
+
+*** Algorithm
+***** Code
+
+#+name: dmc_algo
+#+begin_src julia
+function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
+    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
+    localenergy = zeros(nruns, niter);
+    weightlist = zeros(niter);
+    prodweightlist = zeros(niter);
+    idweightlist = zeros(niter);
+    for irun in 1:nruns
+        # Initialize lists
+        elocaltot = zeros(niter);
+        wlocaltot = zeros(niter);
+        j = 1;
+        i = j;
+        wlocal = 1.0;
+
+        # Prepare weight list
+        for it in 1:niter
+            # Perform MC step
+            j = doSwap(rand(),j,pijsummed,pijidsSorted);
+
+            # Initialize weightlist
+            weightlist[it] = weightij[(i,j)];
+
+            # Save current state
+            i = j;
+        end
+
+        # Prepare prodweightlist
+        for it in niter:-1:1
+            prodweightlist[niter-it+1] = wlocal * weightlist[it];
+            wlocal = wlocal * weightlist[it];
+        end
+
+        # Do PDMC
+        for istep in 1:nsteps
+            # Calculate elocal and wlocal
+            for it in 1:niter
+               elocaltot[it] += elij[j] * prodweightlist[it];
+               wlocaltot[it] += prodweightlist[it];
+            end
+
+            # Perform MC step
+            j = doSwap(rand(),j,pijsummed,pijidsSorted);
+
+            # Calculate new weights
+            wlocal = weightij[(i,j)];
+            for it in 1:niter-1
+                idxdel = (((istep-1 + (niter-it)) % niter) + 1);
+                idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
+                wprev = weightlist[idxdel];
+                wnew  = weightlist[idxnew];
+                prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+            end
+            idxnew = (((istep-1) % niter) + 1);
+            wprev = weightlist[idxnew];
+            weightlist[idxnew] = weightij[(i,j)];
+            prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
+
+            # Save current state
+            i = j;
+        end
+
+        # Fill global list
+        for it in 1:niter
+            localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
+        end
+    end
+    return(localenergy);
+end
+#+end_src
 * Testing
 
-#+begin_src julia
+#+begin_src julia :results output
 tmpnmax = 16
 tmparray = zeros(tmpnmax);
 map(x->tmparray[x]=x,collect(1:tmpnmax));

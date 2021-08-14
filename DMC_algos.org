@@ -488,6 +488,7 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
     localenergy = zeros(nruns, niter);
     weightlist = zeros(niter);
     prodweightlist = zeros(niter);
+    #prodweightlist_per_i = zeros(niter);
     idweightlist = zeros(niter);
     for irun in 1:nruns
         # Initialize lists
@@ -522,6 +523,9 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
                elocaltot[it] += elij[j] * prodweightlist[it];
                wlocaltot[it] += prodweightlist[it];
             end
+            #if(j == 5)
+            #    prodweightlist_per_i .+= prodweightlist;
+            #end
 
             # Perform MC step
             j = doSwap(rand(),j,pijsummed,pijidsSorted);
@@ -549,14 +553,12 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
         # Fill global list
         for it in 1:niter
             localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
-            #localenergy[irun,it] = elocaltot[it];
+            #localenergy[irun,it] = prodweightlist_per_i[it]/nsteps;
         end
     end
     return(localenergy);
 end
 #+end_src
-
-#+RESULTS: pdmc_algo
 
 #+name: testing
 #+begin_src julia
@@ -581,7 +583,7 @@ plt=plot(collect(1:niter),meanenerlist,
          ylabel=L"E_0",
 #        lw=2,
          xlims = (0,niter),
-#         ylims = (0.36,0.48),
+         ylims = (-2.0,-1.4),
          framestyle=:box,
          guidefontsize=10,
          legendfontsize=6,
@@ -592,74 +594,92 @@ plt=plot(collect(1:niter),meanenerlist,
          size=(400,600),
          ribbon=varenerlist
          )
+hline!([-1.97],line=:dash)
 #+end_src
+
 
 ** Diffusion Monte Carlo
 
 *** Algorithm
+
 ***** Code
 
 #+name: dmc_algo
 #+begin_src julia
-function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
+function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
     localenergy = zeros(nruns, niter);
-    weightlist = zeros(niter);
-    prodweightlist = zeros(niter);
-    idweightlist = zeros(niter);
+    weightlist = zeros(nwalker,niter);
+    prodweightlist = zeros(nwalker,niter);
+    idweightlist = zeros(nwalker,niter);
+    walkerlisti = zeros(nwalker)
+    walkerlistj = zeros(nwalker)
     for irun in 1:nruns
         # Initialize lists
         elocaltot = zeros(niter);
         wlocaltot = zeros(niter);
         j = 1;
         i = j;
+        walkerlistj = 1;
+        walkerlisti = 1;
         wlocal = 1.0;
 
         # Prepare weight list
         for it in 1:niter
-            # Perform MC step
-            j = doSwap(rand(),j,pijsummed,pijidsSorted);
+            # Perform MC step for each walker
+            for nw in 1:nwalker
+                walkerlistj[nw] = doSwap(rand(),walkerlistj[nw],pijsummed,pijidsSorted);
 
-            # Initialize weightlist
-            weightlist[it] = weightij[(i,j)];
+                # Initialize weightlist
+                weightlist[nw,it] = weightij[(i,j)];
 
-            # Save current state
-            i = j;
+                # Save current state
+                walkerlisti[nw] = walkerlistj[nw];
+            end
         end
 
         # Prepare prodweightlist
         for it in niter:-1:1
-            prodweightlist[niter-it+1] = wlocal * weightlist[it];
-            wlocal = wlocal * weightlist[it];
+            for nw in 1:nwalker
+                prodweightlist[nw,niter-it+1] = wlocal * weightlist[nw,it];
+                wlocal = wlocal * weightlist[nw,it];
+            end
         end
 
         # Do PDMC
         for istep in 1:nsteps
             # Calculate elocal and wlocal
             for it in 1:niter
-               elocaltot[it] += elij[j] * prodweightlist[it];
-               wlocaltot[it] += prodweightlist[it];
+                elocaltotperw = 0.0;
+                wlocaltotperw = 0.0;
+                for nw in 1:nwalker
+                    elocaltotprew += elij[walkerlistj[nw]] * prodweightlist[nw,it];
+                    wlocaltotperw += prodweightlist[nw,it];
+                end
+                elocaltot[it] += elocaltotperw/nwalker;
+                wlocaltot[it] += wlocaltotperw/nwalker;
             end
 
-            # Perform MC step
-            j = doSwap(rand(),j,pijsummed,pijidsSorted);
+            # Perform MC step for each walker
+            for nw in 1:nwalker
+                walkerlistj[nw] = doSwap(rand(),walkerlistj[nw],pijsummed,pijidsSorted);
 
-            # Calculate new weights
-            wlocal = weightij[(i,j)];
-            for it in 1:niter-1
-                idxdel = (((istep-1 + (niter-it)) % niter) + 1);
-                idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
-                wprev = weightlist[idxdel];
-                wnew  = weightlist[idxnew];
-                prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+                # Calculate new weights
+                wlocal = weightij[(i,j)];
+                for it in 1:niter-1
+                    idxdel = (((istep-1 + (niter-it)) % niter) + 1);
+                    wprev = weightlist[idxdel];
+                    wnew  = wlocal;
+                    prodweightlist[nw,it] = prodweightlist[nw,it] * wnew/wprev;
+                end
+                idxnew = (((istep-1) % niter) + 1);
+                wprev = weightlist[nw,idxnew];
+                weightlist[nw,idxnew] = weightij[(i,j)];
+                prodweightlist[nw,niter] = prodweightlist[nw,niter] * wlocal/wprev;
+
+                # Save current state
+                i = j;
             end
-            idxnew = (((istep-1) % niter) + 1);
-            wprev = weightlist[idxnew];
-            weightlist[idxnew] = weightij[(i,j)];
-            prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
-
-            # Save current state
-            i = j;
         end
 
         # Fill global list
@@ -670,6 +690,7 @@ function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     return(localenergy);
 end
 #+end_src
+
 * Testing
 
 #+begin_src julia :results output

@@ -62,7 +62,7 @@ ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
 nsteps = 2048;#1*8192;
-niter = 400;
+niter = 40;
 nruns = 100;
 nwalker = 20;
 ham=[nu0 -t; -t nu1];
@@ -70,6 +70,8 @@ vec0 = [c0, c1];
 vec0 = vec0/norm(vec0);
 e_exact,vec_exact = eigen(ham)
 #+end_src
+
+#+RESULTS: var2x2
 
 #+name: var3x3
 #+begin_src julia
@@ -612,6 +614,7 @@ hline!([-1.97],line=:dash)
 #+begin_src julia :tangle srdmc.jl
 function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
+    println(weightij);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(nwalker,niter);
     prodweightlist = zeros(nwalker,niter);
@@ -636,7 +639,9 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             # Perform MC step for each walker
             for nw in 1:nwalker
                 j = walkerlistj[nw];
+                i = walkerlisti[nw];
                 walkerlistj[nw] = doSwap(rand(),j,pijsummed,pijidsSorted);
+                j = walkerlistj[nw];
 
                 # Initialize weightlist
                 weightlist[nw,it] = weightij[(i,j)];
@@ -668,13 +673,18 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                 wlocaltot[it] += wlocaltotperw/nwalker;
             end
 
+            #println("iter --- ",istep," ----");
+            #println(walkerlistj);
             # Perform MC step for each walker
             for nw in 1:nwalker
                 j = walkerlistj[nw];
+                i = walkerlisti[nw];
                 walkerlistj[nw] = doSwap(rand(),j,pijsummed,pijidsSorted);
+                j = walkerlistj[nw];
 
                 # Calculate new weights
                 wlocal = weightij[(i,j)];
+                #println(wlocal);
                 for it in 1:niter-1
                     idxdel = (((istep-1 + (niter-it)) % niter) + 1);
                     wprev = weightlist[nw,idxdel];
@@ -701,8 +711,18 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             for nw in 1:nwalker
                 problistj[nw] = sum(weightlistscaled[1:nw]);
             end
+            #println(weightlist[:,idxnew]);
+            #println(walkerlistj);
+            #println(problistj);
+            #println("old j==1");
+            #println(sum(map(x->x==1,walkerlistj)));
             newwalkerlistj = branch_dmc(problistj, walkerlistj, nwalker);
             walkerlistj = newwalkerlistj;
+            #println("new j==1");
+            #println(sum(map(x->x==1,walkerlistj)));
+
+            # Save j in i
+            walkerlisti = walkerlistj;
 
         end
 
@@ -721,8 +741,12 @@ function branch_dmc(problist,walkerlist,nwalker)
     # Make new walker list
     newwalkerlist = zeros(Int64,nwalker);
     swap12 = Dict();
-    swap12[1] = 2;
-    swap12[2] = 1;
+    swap12[1] = 1;
+    swap12[2] = 2;
+    #swap12[3] = 3;
+    #swap12[4] = 4;
+    #swap12[5] = 5;
+    #swap12[6] = 6;
     for nw in 1:nwalker
         newwalkerlist[nw] = swap12[walkerlist[searchsortedfirst(problist, rand())]];
     end

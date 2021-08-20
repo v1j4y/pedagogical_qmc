@@ -45,6 +45,9 @@ using DataStructures
 using Statistics
 using LinearAlgebra
 using Profile
+using Revise
+
+includet("srdmc.jl")
 
 # Vars
 nu0 =  1;
@@ -54,14 +57,14 @@ t=1;
 # Trial energy
 ET = 2.0
 # Taux d'acceptation > 99%
-tau = 0.04;
+tau = 0.02;
 ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 1*8192;
+nsteps = 2048;#1*8192;
 niter = 400;
 nruns = 100;
-nwalker = 2;
+nwalker = 20;
 ham=[nu0 -t; -t nu1];
 vec0 = [c0, c1];
 vec0 = vec0/norm(vec0);
@@ -334,6 +337,7 @@ mean(localenergy)
 var(localenergy)
 #+end_src
 
+
 **** PDMC Step
 
 ***** Formulae
@@ -605,30 +609,34 @@ hline!([-1.97],line=:dash)
 ***** Code
 
 #+name: dmc_algo
-#+begin_src julia
+#+begin_src julia :tangle srdmc.jl
 function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(nwalker,niter);
     prodweightlist = zeros(nwalker,niter);
     idweightlist = zeros(nwalker,niter);
-    walkerlisti = zeros(nwalker)
-    walkerlistj = zeros(nwalker)
+    walkerlisti = zeros(Int64,nwalker)
+    walkerlistj = zeros(Int64,nwalker)
+    newwalkerlistj = zeros(Int64,nwalker)
+    weightlistscaled = zeros(Float64,nwalker)
+    problistj = zeros(Float64,nwalker)
     for irun in 1:nruns
         # Initialize lists
         elocaltot = zeros(niter);
         wlocaltot = zeros(niter);
         j = 1;
         i = j;
-        walkerlistj = 1;
-        walkerlisti = 1;
+        walkerlistj .= 1;
+        walkerlisti .= 1;
         wlocal = 1.0;
 
         # Prepare weight list
         for it in 1:niter
             # Perform MC step for each walker
             for nw in 1:nwalker
-                walkerlistj[nw] = doSwap(rand(),walkerlistj[nw],pijsummed,pijidsSorted);
+                j = walkerlistj[nw];
+                walkerlistj[nw] = doSwap(rand(),j,pijsummed,pijidsSorted);
 
                 # Initialize weightlist
                 weightlist[nw,it] = weightij[(i,j)];
@@ -653,7 +661,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                 elocaltotperw = 0.0;
                 wlocaltotperw = 0.0;
                 for nw in 1:nwalker
-                    elocaltotprew += elij[walkerlistj[nw]] * prodweightlist[nw,it];
+                    elocaltotperw += elij[walkerlistj[nw]] * prodweightlist[nw,it];
                     wlocaltotperw += prodweightlist[nw,it];
                 end
                 elocaltot[it] += elocaltotperw/nwalker;
@@ -662,24 +670,40 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
 
             # Perform MC step for each walker
             for nw in 1:nwalker
-                walkerlistj[nw] = doSwap(rand(),walkerlistj[nw],pijsummed,pijidsSorted);
+                j = walkerlistj[nw];
+                walkerlistj[nw] = doSwap(rand(),j,pijsummed,pijidsSorted);
 
                 # Calculate new weights
                 wlocal = weightij[(i,j)];
                 for it in 1:niter-1
                     idxdel = (((istep-1 + (niter-it)) % niter) + 1);
-                    wprev = weightlist[idxdel];
+                    wprev = weightlist[nw,idxdel];
                     wnew  = wlocal;
-                    prodweightlist[nw,it] = prodweightlist[nw,it] * wnew/wprev;
+                    #prodweightlist[nw,it] = prodweightlist[nw,it] * wnew/wprev;
+                    prodweightlist[nw,it] = 1.0;
                 end
                 idxnew = (((istep-1) % niter) + 1);
                 wprev = weightlist[nw,idxnew];
                 weightlist[nw,idxnew] = weightij[(i,j)];
-                prodweightlist[nw,niter] = prodweightlist[nw,niter] * wlocal/wprev;
+                #prodweightlist[nw,niter] = prodweightlist[nw,niter] * wlocal/wprev;
+                prodweightlist[nw,niter] = 1.0;
 
                 # Save current state
-                i = j;
+                walkerlisti[nw] = walkerlistj[nw];
             end
+
+            # Branching
+
+            # Calculate probability list
+            idxnew = (((istep-1) % niter) + 1);
+            totweightlist = sum(weightlist[:,idxnew]);
+            weightlistscaled = weightlist[:,idxnew]/totweightlist;
+            for nw in 1:nwalker
+                problistj[nw] = sum(weightlistscaled[1:nw]);
+            end
+            newwalkerlistj = branch_dmc(problistj, walkerlistj, nwalker);
+            walkerlistj = newwalkerlistj;
+
         end
 
         # Fill global list
@@ -689,6 +713,50 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     end
     return(localenergy);
 end
+#+end_src
+
+#+name: branching
+#+begin_src julia :tangle srdmc.jl
+function branch_dmc(problist,walkerlist,nwalker)
+    # Make new walker list
+    newwalkerlist = zeros(Int64,nwalker);
+    swap12 = Dict();
+    swap12[1] = 2;
+    swap12[2] = 1;
+    for nw in 1:nwalker
+        newwalkerlist[nw] = swap12[walkerlist[searchsortedfirst(problist, rand())]];
+    end
+    return(newwalkerlist);
+end
+#+end_src
+
+***** Plots
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
+meanenerlist = zeros(niter);
+varenerlist = zeros(niter);
+localenergy = do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker);
+for it in 1:niter
+    meanenerlist[it] = mean(localenergy[:,it]);
+    varenerlist[it] = var(localenergy[:,it]);
+end
+plt=plot(collect(1:niter),meanenerlist,
+         xlabel=L"n",
+         ylabel=L"E_0",
+#        lw=2,
+         xlims = (0,niter),
+         #ylims = (-2.0,-1.4),
+         framestyle=:box,
+         guidefontsize=10,
+         legendfontsize=6,
+         thickness_scaling=1.5,
+         grid=:none,
+#        marker=true,
+#        markersize=2,
+         size=(400,600),
+         ribbon=varenerlist
+         )
+hline!([-1.97],line=:dash)
 #+end_src
 
 * Testing

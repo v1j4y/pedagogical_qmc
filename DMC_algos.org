@@ -57,11 +57,11 @@ t=1;
 # Trial energy
 ET = 2.0
 # Taux d'acceptation > 99%
-tau = 0.02;
+tau = 0.020;
 ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 2048;#1*8192;
+nsteps = 1024;#1*8192;
 niter = 40;
 nruns = 100;
 nwalker = 20;
@@ -617,13 +617,14 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     println(weightij);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(nwalker,niter);
-    prodweightlist = zeros(nwalker,niter);
+    prodweightlist = zeros(niter);
     idweightlist = zeros(nwalker,niter);
-    walkerlisti = zeros(Int64,nwalker)
-    walkerlistj = zeros(Int64,nwalker)
-    newwalkerlistj = zeros(Int64,nwalker)
-    weightlistscaled = zeros(Float64,nwalker)
-    problistj = zeros(Float64,nwalker)
+    walkerlisti = zeros(Int64,nwalker);
+    walkerlistj = zeros(Int64,nwalker);
+    newwalkerlistj = zeros(Int64,nwalker);
+    weightlistscaled = zeros(Float64,nwalker);
+    weightperwalker = zeros(Float64,nwalker,niter);
+    problistj = zeros(Float64,nwalker);
     for irun in 1:nruns
         # Initialize lists
         elocaltot = zeros(niter);
@@ -674,7 +675,6 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             end
 
             #println("iter --- ",istep," ----");
-            #println(walkerlistj);
             # Perform MC step for each walker
             for nw in 1:nwalker
                 j = walkerlistj[nw];
@@ -690,36 +690,57 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                     wprev = weightlist[nw,idxdel];
                     wnew  = wlocal;
                     #prodweightlist[nw,it] = prodweightlist[nw,it] * wnew/wprev;
-                    prodweightlist[nw,it] = 1.0;
                 end
                 idxnew = (((istep-1) % niter) + 1);
                 wprev = weightlist[nw,idxnew];
                 weightlist[nw,idxnew] = weightij[(i,j)];
                 #prodweightlist[nw,niter] = prodweightlist[nw,niter] * wlocal/wprev;
-                prodweightlist[nw,niter] = 1.0;
 
                 # Save current state
                 walkerlisti[nw] = walkerlistj[nw];
             end
 
+            idxnew = (((istep-1) % niter) + 1);
+
+            # Calculate the weight per walker
+            avgweight = sum(weightlist[:,idxnew])/nwalker;
+            #for nw in 1:nwalker
+                # Calculate new weights
+                wlocal = weightlist[nw,idxnew]/avgweight;
+                #println(wlocal);
+                for it in 1:niter-1
+                    idxdel = (((istep-1 + (niter-it)) % niter) + 1);
+                    wprev = weightlist[nw,idxdel]/avgweight;
+                    wnew  = wlocal;
+                    prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+                end
+                idxnew = (((istep-1) % niter) + 1);
+                wprev = weightlist[nw,idxnew]/avgweight;
+                prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
+            #end
+            #println("weight per walker");
+            #println(weightperwalker);
+
+            #println(walkerlistj);
             # Branching
 
             # Calculate probability list
-            idxnew = (((istep-1) % niter) + 1);
-            totweightlist = sum(weightlist[:,idxnew]);
-            weightlistscaled = weightlist[:,idxnew]/totweightlist;
-            for nw in 1:nwalker
+
+            # Get ids of the big weights
+            idbig = findall(x->x>1.0,weightlist[:,idxnew]);
+            nreconfig = length(idbig);
+
+            totweightlist = sum(weightlist[idbig,idxnew]/avgweight);
+            weightlistscaled = (weightlist[idbig,idxnew]/avgweight)/totweightlist;
+            for nw in 1:nreconfig
                 problistj[nw] = sum(weightlistscaled[1:nw]);
             end
-            #println(weightlist[:,idxnew]);
+            newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
+            walkerlistj[idbig] = newwalkerlistj;
+            #println(idbig, " - ",nreconfig);
+            #println(problistj[1:nreconfig]);
+            #println("After");
             #println(walkerlistj);
-            #println(problistj);
-            #println("old j==1");
-            #println(sum(map(x->x==1,walkerlistj)));
-            newwalkerlistj = branch_dmc(problistj, walkerlistj, nwalker);
-            walkerlistj = newwalkerlistj;
-            #println("new j==1");
-            #println(sum(map(x->x==1,walkerlistj)));
 
             # Save j in i
             walkerlisti = walkerlistj;
@@ -740,15 +761,8 @@ end
 function branch_dmc(problist,walkerlist,nwalker)
     # Make new walker list
     newwalkerlist = zeros(Int64,nwalker);
-    swap12 = Dict();
-    swap12[1] = 1;
-    swap12[2] = 2;
-    #swap12[3] = 3;
-    #swap12[4] = 4;
-    #swap12[5] = 5;
-    #swap12[6] = 6;
     for nw in 1:nwalker
-        newwalkerlist[nw] = swap12[walkerlist[searchsortedfirst(problist, rand())]];
+        newwalkerlist[nw] = walkerlist[searchsortedfirst(problist, rand())];
     end
     return(newwalkerlist);
 end

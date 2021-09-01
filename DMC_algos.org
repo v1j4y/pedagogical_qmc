@@ -61,8 +61,8 @@ tau = 0.010;
 ET = 3.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 240000;#1*8192;
-niter = 40;
+nsteps = 8*8192;
+niter = 400;
 nruns = 100;
 nwalker = 20;
 ham=[nu0 -t; -t nu1];
@@ -714,15 +714,15 @@ end
 function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
     println(weightij);
-    nsrsteps = 200;
+    nsrsteps = 1;
     localenergy = zeros(nruns,niter);
     walkerlisti = zeros(Int64,nwalker);
     walkerlistj = zeros(Int64,nwalker);
     newwalkerlistj = zeros(Int64,nwalker);
     prodweightlist = zeros(niter);
     weightlist = zeros(Float64,nwalker);
-    globalweightlist = zeros(Float64,nwalker);
     weightlistscaled = zeros(Float64,nwalker);
+    globalweightlist = zeros(Float64,niter);
     problistj = zeros(Float64,nwalker);
     for irun in 1:nruns
         # Initialize lists
@@ -744,13 +744,13 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
 
                 # Calculate the weight
                 weightperwalker += weightij[(i,j)];
+                weightlist[nw]   = weightij[(i,j)];
 
                 # Save current state
                 walkerlisti[nw] = walkerlistj[nw];
             end
 
             # Initialize weightlist
-            weightlist[it] = weightperwalker/nwalker;
             globalweightlist[it] = weightperwalker/nwalker;
         end
 
@@ -774,6 +774,8 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                 end
             end
 
+            #println("iter --- ",istep," ----");
+
             elocaltotwalker = 0.0;
             for srstep in 1:nsrsteps
                 # Calculate elocal
@@ -782,7 +784,6 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                     elocaltotwalker += elij[walkerlistj[nw]]/nwalker;
                 end
 
-                #println("iter --- ",istep," ----");
                 #println("E= ",elocaltot);
                 #println("wlocal= ",wlocaltot);
                 #println("prodweigh= ",prodweightlist[1:10]);
@@ -806,7 +807,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
 
                         wprev = globalweightlist[idxdel];
                         wnew  = wlocal;
-                            prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+                        prodweightlist[it] = prodweightlist[it] * wnew/wprev;
                     end
                     idxnew = (((istep-1) % niter) + 1);
                     wprev = globalweightlist[idxnew];
@@ -838,6 +839,9 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                 walkerlisti = walkerlistj;
 
             end
+            #println("prodlist= ",prodweightlist[1:4]);
+            #println("eloctot= ",elocaltot[1:4]);
+            #println("wloctot= ",wlocaltot[1:4]);
         end
 
         # Fill global list
@@ -845,6 +849,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             localenergy[irun,it] = elocaltot[it]/(wlocaltot[it]);
         end
     end
+    println(prodweightlist);
     return(localenergy);
 end
 #+end_src

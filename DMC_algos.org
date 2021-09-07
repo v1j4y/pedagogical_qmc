@@ -865,6 +865,8 @@ plt=plot(collect(1:niter),meanenerlist,
          label=["SRDMC" "PDMC" ""]
          )
 hline!([-1.97],line=:dash,label=nothing)
+figpath="/tmp/";
+savefig(plt,figpath*"fig1.pdf")
 #+end_src
 
 * Testing

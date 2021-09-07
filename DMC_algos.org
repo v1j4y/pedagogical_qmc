@@ -58,11 +58,11 @@ t=1;
 ET = 1.0
 # Taux d'acceptation > 99%
 tau = 0.010;
-ET = 3.0;
+ET = 2.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 8*8192;
-niter = 200;
+nsteps = 1*4096;
+niter = 100;
 nruns = 200;
 nwalker = 20;
 ham=[nu0 -t; -t nu1];
@@ -681,25 +681,17 @@ function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             # Get ids of the big weights
             idbig = findall(x->x>1.0,weightlist);
             nreconfig = length(idbig);
-            #println("idbig=",idbig);
-            #println("nreconf= ",nreconfig);
 
             totweightlist = sum(weightlist[idbig]);
             weightlistscaled = (weightlist[idbig])/totweightlist;
             for nw in 1:nreconfig
                 problistj[nw] = sum(weightlistscaled[1:nw]);
             end
-            #println("problistj= ",problistj);
             newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
-            #println(walkerlistj[idbig].==newwalkerlistj);
-            #println("newlist= ",newwalkerlistj);
-            #println("idbig= ",idbig);
             walkerlistj[idbig] = newwalkerlistj;
 
             # Save j in i
             walkerlisti = walkerlistj;
-            #println(walkerlistj);
-            #println("eloctot=",elocaltot[1]/wlocaltot[1])
 
         end
 
@@ -715,6 +707,7 @@ end
 function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
     println(weightij);
+    println(elij);
     localenergy = zeros(nruns,niter);
     prodweightlist = zeros(niter);
     walkerlisti = zeros(Int64,nwalker);
@@ -762,15 +755,15 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             # Calculate elocal and wlocal
             elocalavg = 0.0;
             for nw in 1:nwalker
-                elocalavg += elij[walkerlistj[nw]];
+                elocalavg += elij[walkerlistj[nw]]/nwalker;
             end
             for it in 1:niter
-                elocaltot[it] += (elocalavg/nwalker) * prodweightlist[it];
+                elocaltot[it] += elocalavg * prodweightlist[it];
                 wlocaltot[it] += prodweightlist[it];
             end
 
             #println("iter --- ",istep," ----");
-            #println("E= ",elocaltot);
+            #println("E= ",elocaltot[1]/istep, " elocavg = ",elocalavg);
             #println("E/W= ",elocaltot./wlocaltot);
             #println(" # 1s = ",100*sum(walkerlistj.==1)/200," ",100*sum(walkerlistj.==2)/200," ",100*sum(walkerlistj.==3)/200," ",100*sum(walkerlistj.==4)/200," ",100*sum(walkerlistj.==5)/200," ",100*sum(walkerlistj.==6)/200);
             # Perform MC step for each walker
@@ -802,7 +795,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             # Branching
 
             # Calculate probability list
-            weightlist .= weightlist/wlocal;
+            #weightlist .= weightlist/wlocal;
 
             # Get ids of the big weights
             idbig = findall(x->x>1.0,weightlist);
@@ -823,7 +816,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
 
         # Fill global list
         for it in 1:niter
-            localenergy[irun,it] = (elocaltot[it])/wlocaltot[it];
+            localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
         end
     end
     return(localenergy);

@@ -71,8 +71,6 @@ vec0 = vec0/norm(vec0);
 e_exact,vec_exact = eigen(ham)
 #+end_src
 
-#+RESULTS: var2x2
-
 #+name: var3x3
 #+begin_src julia
 using Plots
@@ -147,6 +145,13 @@ nsteps = 2048;#4*8192;
 niter = 100;
 nruns = 100;
 e_exact,vec_exact = eigen(ham)
+#+end_src
+
+#+name: hubb
+#+begin_src julia :tangle srdmc.jl
+t = 1.0;
+nu0 = 2.0;
+
 #+end_src
 
 **** Algorithm
@@ -762,11 +767,6 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
                 wlocaltot[it] += prodweightlist[it];
             end
 
-            #println("iter --- ",istep," ----");
-            #println("E= ",elocaltot[1]/istep, " elocavg = ",elocalavg);
-            #println("E/W= ",elocaltot./wlocaltot);
-            #println(" # 1s = ",100*sum(walkerlistj.==1)/200," ",100*sum(walkerlistj.==2)/200," ",100*sum(walkerlistj.==3)/200," ",100*sum(walkerlistj.==4)/200," ",100*sum(walkerlistj.==5)/200," ",100*sum(walkerlistj.==6)/200);
-            # Perform MC step for each walker
             for nw in 1:nwalker
                 j = walkerlistj[nw];
                 i = walkerlisti[nw];
@@ -780,7 +780,6 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
 
             # Calculate new weights
             wlocal = sum(weightlist)/nwalker;
-            #println("Wlocal= ",wlocal);
             for it in 1:niter-1
                 idxdel = (((istep-1 + (niter-it)) % niter) + 1);
                 wprev = weightlistscaled[idxdel];
@@ -838,12 +837,15 @@ end
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
-meanenerlist = zeros(niter);
-varenerlist = zeros(niter);
+meanenerlist = zeros(niter,2);
+varenerlist = zeros(niter,2);
+localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
 localenergy = do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker);
 for it in 1:niter
-    meanenerlist[it] = mean(localenergy[:,it]);
-    varenerlist[it] = var(localenergy[:,it]);
+    meanenerlist[it,1] = mean(localenergy[:,it]);
+    varenerlist[it,1] = var(localenergy[:,it]);
+    meanenerlist[it,2] = mean(localenergypdmc[:,it]);
+    varenerlist[it,2] = var(localenergypdmc[:,it]);
 end
 plt=plot(collect(1:niter),meanenerlist,
          xlabel=L"n",
@@ -859,9 +861,10 @@ plt=plot(collect(1:niter),meanenerlist,
 #        marker=true,
 #        markersize=2,
          size=(400,600),
-         ribbon=varenerlist
+         ribbon=varenerlist,
+         label=["SRDMC" "PDMC" ""]
          )
-hline!([-1.97],line=:dash)
+hline!([-1.97],line=:dash,label=nothing)
 #+end_src
 
 * Testing

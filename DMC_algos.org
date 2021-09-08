@@ -37,6 +37,8 @@ shown in Eq:[[mat2x2]]
 
 **** Initialization
 
+***** Bosonic
+
 #+name: var2x2
 #+begin_src julia
 using Plots
@@ -147,11 +149,38 @@ nruns = 100;
 e_exact,vec_exact = eigen(ham)
 #+end_src
 
-#+name: hubb
-#+begin_src julia :tangle srdmc.jl
-t = 1.0;
-nu0 = 2.0;
+***** Heisenberg
 
+#+name: heis8x8
+#+begin_src julia
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
+using Profile
+using Revise
+using DelimitedFiles
+
+includet("srdmc.jl")
+
+# Vars
+dimham = 70;
+# Trial energy
+ET = 2.0
+# Taux d'acceptation > 99%
+tau = 0.010;
+c0=1/sqrt(2);
+c1=1/sqrt(2);
+nsteps = 1*4096;
+niter = 100;
+nruns = 200;
+nwalker = 40;
+ham=readdlm("/tmp/ham8x8.txt",'\t',Float64,'\n');
+vec0 = zeros(Float64,dimham);
+vec0 = rand(dimham);
+vec0 = vec0/norm(vec0);
+e_exact,vec_exact = eigen(ham)
 #+end_src
 
 **** Algorithm
@@ -297,7 +326,7 @@ end
 #+name: swap_states
 #+begin_src julia :tangle srdmc.jl
 function doSwap(randval, j, pij, pijids)
-   return(pijids[j,searchsortedfirst(collect(keys(pij[j])),randval)])
+   return(pijids[j,searchsortedfirst(collect(values(pij[j])),randval)])
 end
 #+end_src
 
@@ -323,8 +352,8 @@ function prepare_pij(ham, vec, ET, tau)
     pijidsSorted = zeros(Int,dim,dim);
     pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
     for i in 1:dim
-        map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
-        pijidsSorted[i,1:dim] = collect(values(pijsummed[i]))
+        map(x->pijsummed[i][collect(values(pij[i]))[x]]=foldl(+,collect(keys(pij[i]))[1:x]),1:length(pij[i]))
+        pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
     end
     return(pijsummed,pijidsSorted, elij)
 end
@@ -418,7 +447,7 @@ function prepare_pij_wij(ham, vec, ET, tau)
             if(i==j)
                 elij[i] = EL;
             end
-            pij[i][p12] = j
+            pij[i][j] = p12;
             weightij[(i,j)] = w12
         end
     end
@@ -426,8 +455,8 @@ function prepare_pij_wij(ham, vec, ET, tau)
     pijidsSorted = zeros(Int,dim,dim);
     pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
     for i in 1:dim
-        map(x->pijsummed[i][foldl(+,collect(keys(pij[i]))[1:x])]=collect(values(pij[i]))[x],1:length(pij[i]))
-        pijidsSorted[i,1:dim] = collect(values(pijsummed[i]))
+        map(x->pijsummed[i][collect(keys(pij[i]))[x]]=foldl(+,collect(values(pij[i]))[1:x]),1:length(pij[i]))
+        pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
     end
     return(pijsummed,pijidsSorted, elij, weightij)
 end

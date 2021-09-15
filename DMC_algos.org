@@ -48,23 +48,24 @@ using Statistics
 using LinearAlgebra
 using Profile
 using Revise
+using DelimitedFiles
 
 includet("srdmc.jl")
 
 # Vars
 nu0 =  1;
-nu0 = 1;
-nu1 = 2;
+nu0 =1;
+nu1 =2;
 t=1;
 # Trial energy
-ET = 1.0
+ET = 2.0
 # Taux d'acceptation > 99%
-tau = 0.010;
+tau = 0.10;
 ET = 2.0;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 1*4096;
-niter = 100;
+nsteps = 4*8192;
+niter = 400;
 nruns = 200;
 nwalker = 20;
 ham=[nu0 -t; -t nu1];
@@ -82,6 +83,7 @@ using Statistics
 using LinearAlgebra
 using Profile
 using Revise
+using DelimitedFiles
 
 includet("srdmc.jl")
 # Vars
@@ -114,6 +116,7 @@ using Statistics
 using LinearAlgebra
 using Profile
 using Revise
+using DelimitedFiles
 
 includet("srdmc.jl")
 # Vars
@@ -165,20 +168,26 @@ using DelimitedFiles
 includet("srdmc.jl")
 
 # Vars
-dimham = 70;
+dimham = 6;
 # Trial energy
 ET = 2.0
 # Taux d'acceptation > 99%
 tau = 0.010;
 c0=1/sqrt(2);
 c1=1/sqrt(2);
-nsteps = 1*4096;
-niter = 100;
+nsteps = 1*8192;
+niter = 200;
 nruns = 200;
 nwalker = 40;
-ham=readdlm("/tmp/ham8x8.txt",'\t',Float64,'\n');
+ham=readdlm("/tmp/ham4x4.txt",'\t',Float64,'\n');
+ham = ham - Diagonal([2.0, 2.0, 2.0, 2.0, 2.0, 2.0]);
 vec0 = zeros(Float64,dimham);
 vec0 = rand(dimham);
+vec0[1] = vec0[6];
+vec0[2] = vec0[5];
+vec0[3] = vec0[4];
+jastrow = [1/4;3/4;1/4;1/4;3/4;1/4];
+vec0 = vec0 .* jastrow;
 vec0 = vec0/norm(vec0);
 e_exact,vec_exact = eigen(ham)
 #+end_src
@@ -526,7 +535,7 @@ var(localenergy[:,3])
 #+end_src
 
 #+name: pdmc_algo
-#+begin_src julia
+#+begin_src julia :tangle srdmc.jl
 function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
     localenergy = zeros(nruns, niter);
@@ -653,6 +662,8 @@ hline!([-1.97],line=:dash)
 function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
     println(weightij);
+    println(pijsummed);
+    println(pijidsSorted);
     localenergy = zeros(nruns);
     walkerlisti = zeros(Int64,nwalker);
     walkerlistj = zeros(Int64,nwalker);
@@ -660,6 +671,8 @@ function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     weightlistscaled = zeros(Float64,nwalker);
     weightperwalker = zeros(Float64,nwalker);
     problistj = zeros(Float64,nwalker);
+    nreconfmean = 0.0;
+    nreconftot = 0;
     for irun in 1:nruns
         # Initialize lists
         weightlist = zeros(Float64,nwalker);
@@ -688,14 +701,10 @@ function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
         elocaltot = 0.0;
         for istep in 1:nsteps
             # Calculate elocal and wlocal
-            #elocaltot = 0.0;
             for nw in 1:nwalker
                 elocaltot += elij[walkerlistj[nw]]/nwalker;
             end
 
-            #println("iter --- ",istep," ----");
-            #println("E= ",elocaltot);
-            #println(" # 1s = ",100*sum(walkerlistj.==1)/200," ",100*sum(walkerlistj.==2)/200," ",100*sum(walkerlistj.==3)/200," ",100*sum(walkerlistj.==4)/200," ",100*sum(walkerlistj.==5)/200," ",100*sum(walkerlistj.==6)/200);
             # Perform MC step for each walker
             for nw in 1:nwalker
                 j = walkerlistj[nw];
@@ -713,13 +722,14 @@ function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             # Calculate probability list
 
             # Get ids of the big weights
-            idbig = findall(x->x>1.0,weightlist);
+            idbig = findall(x->x>=1.0,weightlist);
             nreconfig = length(idbig);
 
             totweightlist = sum(weightlist[idbig]);
             weightlistscaled = (weightlist[idbig])/totweightlist;
-            for nw in 1:nreconfig
-                problistj[nw] = sum(weightlistscaled[1:nw]);
+            problistj[1] = weightlistscaled[1];
+            for nw in 2:nreconfig
+                problistj[nw] = problistj[nw-1] + weightlistscaled[nw];
             end
             newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
             walkerlistj[idbig] = newwalkerlistj;
@@ -747,6 +757,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     walkerlisti = zeros(Int64,nwalker);
     walkerlistj = zeros(Int64,nwalker);
     weightlistscaled = zeros(Float64,niter);
+    #fullwalkerlist=zeros(Float64,6,nsteps)
     problistj = zeros(Float64,nwalker);
     for irun in 1:nruns
         # Initialize lists
@@ -826,7 +837,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             #weightlist .= weightlist/wlocal;
 
             # Get ids of the big weights
-            idbig = findall(x->x>1.0,weightlist);
+            idbig = findall(x->x>=1.0,weightlist);
             nreconfig = length(idbig);
 
             totweightlist = sum(weightlist[idbig]);
@@ -839,6 +850,10 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
 
             # Save j in i
             walkerlisti = walkerlistj;
+
+            #for nw in 1:nwalker
+            #    fullwalkerlist[walkerlistj[nw],istep] += wlocal;
+            #end
 
         end
 
@@ -853,7 +868,7 @@ end
 
 #+name: branching
 #+begin_src julia :tangle srdmc.jl
-function branch_dmc(problist,walkerlist,nwalker)
+function branch_dmc(problist,   walkerlist,nwalker)
     # Make new walker list
     newwalkerlist = zeros(Int64,nwalker);
     for nw in 1:nwalker
@@ -884,7 +899,8 @@ plt=plot(collect(1:niter),meanenerlist,
          #ylims = (-2.0,-1.4),
          framestyle=:box,
          guidefontsize=10,
-         legendfontsize=6,
+         legend=false,
+#        legendfontsize=6,
          thickness_scaling=1.5,
          grid=:none,
 #        marker=true,
@@ -893,7 +909,7 @@ plt=plot(collect(1:niter),meanenerlist,
          ribbon=varenerlist,
          label=["SRDMC" "PDMC" ""]
          )
-hline!([-1.97],line=:dash,label=nothing)
+hline!([0.381966],line=:dash,label=nothing)
 figpath="/tmp/";
 savefig(plt,figpath*"fig1.pdf")
 #+end_src

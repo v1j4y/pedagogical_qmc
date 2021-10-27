@@ -890,6 +890,14 @@ function getKE_acc(ham, vi, i)
 end
 #+end_src
 
+#+name: calc_trap_time
+#+begin_src julia :tangle srdmc.jl
+function getTraptime_acc(ham, vi, i)
+    TL = getKE_acc(ham, vi, i);
+    return(-1.0/TL)
+end
+#+end_src
+
 #+name: prepare_pij_list_acc
 #+begin_src julia :tangle srdmc.jl
 function getPij_acc(ham, tau, i, j, vec)
@@ -919,10 +927,12 @@ function prepare_pij_wij_acc(ham, vec, ET, tau)
     countswaps = zeros(dim);
     elij = Dict();
     weightij = Dict();
+    thetaij = Dict();
     for i in 1:dim
         for j in 1:dim
             EL = getEL_acc(ham, vec, i)
             EL1 = EL;
+            θi = getTraptime_acc(ham, vec, i)
             w12 = getWeightij_acc(ham, tau, ET, i, j, EL);
             if i == j
                 p12 = 0.0
@@ -930,10 +940,11 @@ function prepare_pij_wij_acc(ham, vec, ET, tau)
                 p12 = getPij_acc(ham, tau, i, j, vec)
             end
             if(i==j)
-                elij[i] = EL;
+                elij[i] = EL * θi;
             end
             pij[i][j] = p12;
             weightij[(i,j)] = w12
+            thetaij[(i,j)] = θi;
         end
     end
     # take sum of Pij
@@ -943,7 +954,7 @@ function prepare_pij_wij_acc(ham, vec, ET, tau)
         map(x->pijsummed[i][collect(keys(pij[i]))[x]]=foldl(+,collect(values(pij[i]))[1:x]),1:length(pij[i]))
         pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
     end
-    return(pijsummed,pijidsSorted, elij, weightij)
+    return(pijsummed,pijidsSorted, elij, weightij,thetaij)
 end
 #+end_src
 
@@ -1079,7 +1090,7 @@ end
 #+name: pdmc_algo_acc
 #+begin_src julia :tangle srdmc.jl
 function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
-    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_acc(ham, vec0, ET, tau);
+    pijsummed, pijidsSorted, elij, weightij, thetaij = prepare_pij_wij_acc(ham, vec0, ET, tau);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(niter);
     prodweightlist = zeros(niter);
@@ -1115,8 +1126,8 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
         for istep in 1:nsteps
             # Calculate elocal and wlocal
             for it in 1:niter
-               elocaltot[it] += elij[j] * prodweightlist[it];
-               wlocaltot[it] += prodweightlist[it];
+               elocaltot[it] += elij[j] * prodweightlist[it] * thetaij[(j,j)];
+               wlocaltot[it] += prodweightlist[it] * thetaij[(j,j)];
             end
             #if(j == 5)
             #    prodweightlist_per_i .+= prodweightlist;
@@ -1126,7 +1137,7 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
             j = doSwap_acc(rand(),j,pijsummed,pijidsSorted);
 
             # Calculate new weights
-            wlocal = weightij[(i,j)];
+            wlocal = weightij[(j,j)];
             for it in 1:niter-1
                 idxdel = (((istep-1 + (niter-it)) % niter) + 1);
                 #idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
@@ -1138,7 +1149,7 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
             end
             idxnew = (((istep-1) % niter) + 1);
             wprev = weightlist[idxnew];
-            weightlist[idxnew] = weightij[(i,j)];
+            weightlist[idxnew] = wlocal;
             prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
 
             # Save current state
@@ -1154,12 +1165,25 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
     return(localenergy);
 end
 #+end_src
+
+#+name: branching
+#+begin_src julia :tangle srdmc.jl
+function branch_dmc(problist,   walkerlist,nwalker)
+    # Make new walker list
+    newwalkerlist = zeros(Int64,nwalker);
+    for nw in 1:nwalker
+        newwalkerlist[nw] = walkerlist[searchsortedfirst(problist, rand())];
+    end
+    return(newwalkerlist);
+end
+#+end_src
+
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
 meanenerlist = zeros(niter,2);
 varenerlist = zeros(niter,2);
-localenergypdmc = do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker);
+localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
 localenergy = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
 for it in 1:niter
     meanenerlist[it,1] = mean(localenergy[:,it]);
@@ -1167,7 +1191,7 @@ for it in 1:niter
     meanenerlist[it,2] = mean(localenergypdmc[:,it]);
     varenerlist[it,2] = var(localenergypdmc[:,it]);
 end
-plt=plot(collect(1:niter),meanenerlist[:,1],
+plt=plot(collect(1:niter),meanenerlist,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
@@ -1183,7 +1207,7 @@ plt=plot(collect(1:niter),meanenerlist[:,1],
 #        markersize=2,
          size=(400,600),
          ribbon=varenerlist,
-         label=["SRDMC" "PDMC" ""]
+         label=["SRDMC" "PDMCacc" ""]
          )
 hline!([-0.21432],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)

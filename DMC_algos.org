@@ -1227,6 +1227,43 @@ savefig(plt,figpath*"fig1.pdf")
 
 ** FCIQMC
 
+*** Initialize
+#+name: var3x3
+#+begin_src julia
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
+using Profile
+using Revise
+using DelimitedFiles
+
+includet("srdmc.jl")
+# Vars
+nu0 = 0;
+nu1 = 1;
+nu2 = 2;
+ζ=0.01;
+stepsize = 5;
+t=1;
+# Trial energy
+ET = 0.01;
+# Taux d'acceptation > 99%
+tau = 0.01;
+c0= 1.001/sqrt(3);
+c1= 0.90001/sqrt(3);
+c2= 0.80/sqrt(3);
+nsteps = 10;#1*8192;
+nruns = 1;#100;
+nwalkermax = 4096;
+ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
+vec0 = [c0, c1, c2];
+vec0 = vec0/norm(vec0);
+e_exact,vec_exact = eigen(ham)
+#+end_src
+
+
 *** Description
 
 
@@ -1247,7 +1284,7 @@ function getEL_fciqmc(ham, vi, i)
 end
 #+end_src
 
-#+name: prepare_pdiagi_list_fciqmc
+#+name: getPdiagi_fciqmc
 #+begin_src julia :tangle srdmc.jl
 function getPdiagi_fciqmc(ham, tau, i, ET)
     numer = tau * (ham[i,i]-ET);
@@ -1255,7 +1292,7 @@ function getPdiagi_fciqmc(ham, tau, i, ET)
 end
 #+end_src
 
-#+name: prepare_pij_list_fciqmc
+#+name: getPij_fciqmc
 #+begin_src julia :tangle srdmc.jl
 function getPij_fciqmc(ham, tau, i, j, vec)
     dim = size(ham)[1];
@@ -1274,7 +1311,7 @@ function getPij_fciqmc(ham, tau, i, j, vec)
 end
 #+end_src
 
-#+name: prepare_spawnij_list_fciqmc
+#+name: getspawnij_list_fciqmc
 #+begin_src julia :tangle srdmc.jl
 function getspawnij_fciqmc(ham, tau, i, j, vec, sgni)
     if ham[i,j] < 0.0
@@ -1309,27 +1346,18 @@ end
 
 #+name: prepare_pij_lists_with_weights_fciqmc
 #+begin_src julia :tangle srdmc.jl
-function prepare_pij_wij_fciqmc(ham, vec, ET, tau)
+function prepare_psij_pdi_fciqmc(ham, vec, ET, tau)
     dim = size(ham)[1];
     pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
     countswaps = zeros(dim);
-    elij = Dict();
-    weightij = Dict();
     for i in 1:dim
         for j in 1:dim
-            EL = getEL_fciqmc(ham, vec, i)
-            EL1 = EL;
-            w12 = getWeightij_fciqmc(ham, tau, ET, i, j, EL);
             if i == j
                 p12 = 0.0
             else
                 p12 = getPij_fciqmc(ham, tau, i, j, vec)
             end
-            if(i==j)
-                elij[i] = EL;
-            end
             pij[i][j] = p12;
-            weightij[(i,j)] = w12
         end
     end
     # take sum of Pij
@@ -1339,7 +1367,7 @@ function prepare_pij_wij_fciqmc(ham, vec, ET, tau)
         map(x->pijsummed[i][collect(keys(pij[i]))[x]]=foldl(+,collect(values(pij[i]))[1:x]),1:length(pij[i]))
         pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
     end
-    return(pijsummed,pijidsSorted, elij, weightij)
+    return(pijsummed,pijidsSorted)
 end
 #+end_src
 
@@ -1347,79 +1375,131 @@ end
 
 #+name: pdmc_algo_fciqmc
 #+begin_src julia :tangle srdmc.jl
-function do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps)
-    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_fciqmc(ham, vec0, ET, tau);
-    localenergy = zeros(nruns, niter);
-    weightlist = zeros(niter);
-    prodweightlist = zeros(niter);
-    #prodweightlist_per_i = zeros(niter);
-    idweightlist = zeros(niter);
+function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
+    pijsummed, pijidsSorted = prepare_psij_pdi_fciqmc(ham, vec0, ET, tau);
+    println(pijsummed);
+    println(pijidsSorted);
+    localenergy = zeros(nruns);
+    walkerlisti = zeros(nwalkermax);
+    walkerlistj = zeros(nwalkermax);
+    walkerlistmerge = zeros(nwalkermax);
+    walkersigni = zeros(nwalkermax);
+    walkersignj = zeros(nwalkermax);
+    walkersignmerge = zeros(nwalkermax);
     for irun in 1:nruns
         # Initialize lists
-        elocaltot = zeros(niter);
-        wlocaltot = zeros(niter);
+        elocaltot = 0.0;
         j = 1;
         i = j;
-        wlocal = 1.0;
-
-        # Prepare weight list
-        for it in 1:niter
-            # Perform MC step
-            j = doSwap_fciqmc(rand(),j,pijsummed,pijidsSorted);
-
-            # Initialize weightlist
-            weightlist[it] = weightij[(i,j)];
-
-            # Save current state
-            i = j;
-        end
-
-        # Prepare prodweightlist
-        for it in niter:-1:1
-            prodweightlist[niter-it+1] = wlocal * weightlist[it];
-            wlocal = wlocal * weightlist[it];
-        end
+        nwalker = 0;
+        nwalkerold = 1;
+        walkerlisti[nwalkerold] = i;
+        walkersigni[nwalkerold] = 1.0;
 
         # Do PDMC
         for istep in 1:nsteps
-            # Calculate elocal and wlocal
-            for it in 1:niter
-               elocaltot[it] += elij[j] * prodweightlist[it] * thetaij[(j,j)];
-               wlocaltot[it] += prodweightlist[it] * thetaij[(j,j)];
+
+            Nwold = nwalkerold;
+
+            # Step 1 - Spawning
+
+            for nw in 1:nwalkerold
+                i = Int32(walkerlisti[nw]);
+                sgni = walkersigni[nw];
+                jnew = doSwap_fciqmc(rand(),i,pijsummed,pijidsSorted);
+                pspawnj, sgnj = getspawnij_fciqmc(ham, tau, i, jnew, vec0, sgni);
+                if pspawnj > rand()
+                    nwalker = nwalker + 1;
+                    walkerlistj[nwalker] = jnew;
+                    walkersignj[nwalker] = sgnj;
+                end
             end
-            #if(j == 5)
-            #    prodweightlist_per_i .+= prodweightlist;
-            #end
 
-            # Perform MC step
-            jnew = doSwap_fciqmc(rand(),j,pijsummed,pijidsSorted);
-            j = jnew;
+            #println("new walkers\n",nwalker,"\t",walkerlistj[1:nwalker]);
 
-            # Calculate new weights
-            wlocal = weightij[(i,j)];
-            for it in 1:niter-1
-                idxdel = (((istep-1 + (niter-it)) % niter) + 1);
-                #idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
-                #idxnew = (((istep) % niter) + 0);
-                wprev = weightlist[idxdel];
-                #wnew  = weightlist[idxnew];
-                wnew  = wlocal;
-                prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+            # Step 2 - Death/Cloning
+
+            for nw in 1:nwalkerold
+                i = Int32(walkerlisti[nw]);
+                sgni = walkersigni[nw];
+                pdiei = getPdiagi_fciqmc(ham, tau, i, ET);
+                if pdiei > 0
+                    if rand() > pdiei
+                        walkerlisti[nw] *= -1;
+                    end
+                else
+                    if rand() > abs(pdiei)
+                        nwalker = nwalker + 1;
+                        walkerlistj[nwalker] = i;
+                        walkersignj[nwalker] = sgni;
+                    end
+                end
             end
-            idxnew = (((istep-1) % niter) + 1);
-            wprev = weightlist[idxnew];
-            weightlist[idxnew] = wlocal;
-            prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
 
-            # Save current state
-            i = j;
+            #println("\n cloned ",nwalker,"\t",walkerlistj[1:nwalker],"\n sign ",walkersignj[1:nwalker]);
+
+            # Prune the dead walkers
+
+            walkerlisti_nodead = walkerlisti[findall(x->x>0,walkerlisti)];
+            walkersigni_nodead = walkersigni[findall(x->x>0,walkerlisti)];
+            nwalkerold = size(walkerlisti_nodead)[1];
+
+            #println("\n no dead ",nwalkerold," \t ",walkerlisti_nodead);
+
+            # Step 3 - Annahilation and merging
+
+            #  SubStep 1 - make signed list
+
+            walkerlisti_tmp = copy(walkerlisti_nodead[1:nwalkerold] .* walkersigni_nodead[1:nwalkerold]);
+            walkerlistj_tmp = copy(walkerlistj[1:nwalker] .* walkersignj[1:nwalker]);
+
+            #println("\n tmpi ",walkerlisti_tmp);
+            #println("\n tmpj ",walkerlistj_tmp);
+
+            #  SubStep 2 - merge new and old list
+
+            mergewalkerlist = vcat((walkerlisti_tmp,walkerlistj_tmp)...);
+
+            #  SubStep 3 - Find unique walkers
+            uniquewalkers = unique(abs.(mergewalkerlist));
+            #println("mergelist\n",mergewalkerlist);
+            #println("unique\n",uniquewalkers);
+
+            nwalkerold = 0;
+            for nwi in uniquewalkers
+                Nposi = size(findall(x->x==nwi,mergewalkerlist))[1];
+                Nnegi = size(findall(x->x==-nwi,mergewalkerlist))[1];
+                sgni = Nposi - Nnegi;
+                nnew = abs(sgni);
+                sgni = sgni/nnew;
+                #println("nwi\n",nwi,"\n",Nposi,"\t",Nnegi,"\n nwalker ",nwalkerold);
+                if nnew > 0
+                    walkerlisti[nwalkerold+1:nwalkerold+nnew] .= nwi;
+                    walkersigni[nwalkerold+1:nwalkerold+nnew] .= sgni;
+                    nwalkerold = nwalkerold + nnew;
+                end
+            end
+
+            #println("new num \n",nwalkerold);
+            #println("new walkers \n",walkerlisti[1:nwalkerold]);
+            #println("new walkers sign \n",walkersigni[1:nwalkerold]);
+
+            Nw = nwalkerold;
+
+            # Step 4 - Change ET
+
+            if istep % stepsize == 0
+                # Change ET
+                ET = adjustS_fciqmc(ET,ζ,tau,Nw,Nwold,stepsize);
+                pijsummed, pijidsSorted = prepare_psij_pdi_fciqmc(ham, vec0, ET, tau);
+            end
+
+            nwalker = 0;
+
         end
 
         # Fill global list
-        for it in 1:niter
-            localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
-            #localenergy[irun,it] = prodweightlist_per_i[it]/nsteps;
-        end
+        localenergy[irun] = ET;
     end
     return(localenergy);
 end
@@ -1430,8 +1510,7 @@ end
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
 meanenerlist = zeros(niter,2);
 varenerlist = zeros(niter,2);
-localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
-localenergy = do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps);
+localenergy = do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
 for it in 1:niter
     meanenerlist[it,1] = mean(localenergy[:,it]);
     varenerlist[it,1] = var(localenergy[:,it]);
@@ -1500,3 +1579,13 @@ end
 12345678    12345678    12345678    12345678
 --***---    --****--    --*****-    --******
 45   123    34    12    23     1    12
+
+#+begin_src julia
+val = 2;
+prob = rand();
+while val > prob
+    println(prob);
+    val = 0.5;
+    prob = rand();
+end
+#+end_src

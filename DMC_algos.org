@@ -1247,39 +1247,63 @@ function getEL_fciqmc(ham, vi, i)
 end
 #+end_src
 
-#+name: calc_local_kenergy_fciqmc
+#+name: prepare_pdiagi_list_fciqmc
 #+begin_src julia :tangle srdmc.jl
-function getKE_fciqmc(ham, vi, i)
-    return(getEL_fciqmc(ham,vi,i) - ham[i,i])
-end
-#+end_src
-
-#+name: calc_trap_time
-#+begin_src julia :tangle srdmc.jl
-function getTraptime_fciqmc(ham, vi, i)
-    TL = getKE_fciqmc(ham, vi, i);
-    return(-1.0/TL)
+function getPdiagi_fciqmc(ham, tau, i, ET)
+    numer = tau * (ham[i,i]-ET);
+    return(numer)
 end
 #+end_src
 
 #+name: prepare_pij_list_fciqmc
 #+begin_src julia :tangle srdmc.jl
 function getPij_fciqmc(ham, tau, i, j, vec)
-    pij = getPij(ham,tau,i,j,vec);
-    pii = getPij(ham,tau,i,i,vec);
-    return(pij/(1-pii))
+    dim = size(ham)[1];
+    numer = abs(ham[i,j]);
+    denom = 0.0;
+    for k in 1:dim
+        if (k!=i)
+            denom = denom + abs(ham[i,k]);
+        end
+    end
+    if(denom==0.0)
+        return typemax(Float64)
+    else
+        return(numer/denom)
+    end
 end
 #+end_src
 
-#+name: getweights_fciqmc
+#+name: prepare_spawnij_list_fciqmc
 #+begin_src julia :tangle srdmc.jl
-function getWeightij_fciqmc(ham, tau, ET, i, j,ELi)
-    if (i==j)
-        TLi = ELi - ham[i,i];
-        return(TLi/(ET - ham[i,i]))
+function getspawnij_fciqmc(ham, tau, i, j, vec, sgni)
+    if ham[i,j] < 0.0
+        sgnj =  1.0 * sgni;
     else
-        return(1.0);
+        sgnj = -1.0 * sgni;
     end
+    numer = tau * abs(ham[i,j]);
+    denom = getPij_fciqmc(ham,tau,i,j,vec);
+    if(denom==0.0)
+        return (typemax(Float64),sgnj)
+    else
+        return((numer/denom),sgnj)
+    end
+end
+#+end_src
+
+#+name: adjustS_states_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function adjustS_fciqmc(Sold,ζ,tau,Nw,Nwold,stepsize)
+    Snew = Sold - log(Nw/Nwold) * ζ / (stepsize * tau);
+    return(Snew)
+end
+#+end_src
+
+#+name: swap_states_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function doSwap_fciqmc(randval, j, pij, pijids)
+   return(pijids[j,searchsortedfirst(collect(values(pij[j])),randval)])
 end
 #+end_src
 
@@ -1291,12 +1315,10 @@ function prepare_pij_wij_fciqmc(ham, vec, ET, tau)
     countswaps = zeros(dim);
     elij = Dict();
     weightij = Dict();
-    thetaij = Dict();
     for i in 1:dim
         for j in 1:dim
             EL = getEL_fciqmc(ham, vec, i)
             EL1 = EL;
-            θi = getTraptime_fciqmc(ham, vec, i)
             w12 = getWeightij_fciqmc(ham, tau, ET, i, j, EL);
             if i == j
                 p12 = 0.0
@@ -1304,11 +1326,10 @@ function prepare_pij_wij_fciqmc(ham, vec, ET, tau)
                 p12 = getPij_fciqmc(ham, tau, i, j, vec)
             end
             if(i==j)
-                elij[i] = EL * θi;
+                elij[i] = EL;
             end
             pij[i][j] = p12;
             weightij[(i,j)] = w12
-            thetaij[(i,j)] = θi;
         end
     end
     # take sum of Pij
@@ -1318,14 +1339,7 @@ function prepare_pij_wij_fciqmc(ham, vec, ET, tau)
         map(x->pijsummed[i][collect(keys(pij[i]))[x]]=foldl(+,collect(values(pij[i]))[1:x]),1:length(pij[i]))
         pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
     end
-    return(pijsummed,pijidsSorted, elij, weightij,thetaij)
-end
-#+end_src
-
-#+name: swap_states
-#+begin_src julia :tangle srdmc.jl
-function doSwap_fciqmc(randval, j, pij, pijids)
-   return(pijids[j,searchsortedfirst(collect(values(pij[j])),randval)])
+    return(pijsummed,pijidsSorted, elij, weightij)
 end
 #+end_src
 
@@ -1334,7 +1348,7 @@ end
 #+name: pdmc_algo_fciqmc
 #+begin_src julia :tangle srdmc.jl
 function do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps)
-    pijsummed, pijidsSorted, elij, weightij, thetaij = prepare_pij_wij_fciqmc(ham, vec0, ET, tau);
+    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_fciqmc(ham, vec0, ET, tau);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(niter);
     prodweightlist = zeros(niter);
@@ -1354,7 +1368,7 @@ function do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps)
             j = doSwap_fciqmc(rand(),j,pijsummed,pijidsSorted);
 
             # Initialize weightlist
-            weightlist[it] = weightij[(j,j)];
+            weightlist[it] = weightij[(i,j)];
 
             # Save current state
             i = j;
@@ -1382,7 +1396,7 @@ function do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps)
             j = jnew;
 
             # Calculate new weights
-            wlocal = weightij[(j,j)];
+            wlocal = weightij[(i,j)];
             for it in 1:niter-1
                 idxdel = (((istep-1 + (niter-it)) % niter) + 1);
                 #idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
@@ -1408,18 +1422,6 @@ function do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps)
         end
     end
     return(localenergy);
-end
-#+end_src
-
-#+name: branching
-#+begin_src julia :tangle srdmc.jl
-function branch_dmc(problist,   walkerlist,nwalker)
-    # Make new walker list
-    newwalkerlist = zeros(Int64,nwalker);
-    for nw in 1:nwalker
-        newwalkerlist[nw] = walkerlist[searchsortedfirst(problist, rand())];
-    end
-    return(newwalkerlist);
 end
 #+end_src
 

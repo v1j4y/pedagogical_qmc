@@ -87,9 +87,9 @@ using DelimitedFiles
 
 includet("srdmc.jl")
 # Vars
-nu0 = 1;
-nu1 = 2;
-nu2 = 3;
+nu0 = 0;
+nu1 = 1;
+nu2 = 10;
 t=1;
 # Trial energy
 ET = -0.1
@@ -970,7 +970,7 @@ end
 #+name: srdmc_algo_acc2
 #+begin_src julia :tangle srdmc.jl
 function do_SRDMC_acc2(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
-    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_acc(ham, vec0, ET, tau);
+    pijsummed, pijidsSorted, elij, weightij, thetaij = prepare_pij_wij_acc(ham, vec0, ET, tau);
     println(weightij);
     println(elij);
     localenergy = zeros(nruns,niter);
@@ -1020,12 +1020,15 @@ function do_SRDMC_acc2(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
         for istep in 1:nsteps
             # Calculate elocal and wlocal
             elocalavg = 0.0;
+            thetaavg = 0.0;
             for nw in 1:nwalker
-                elocalavg += elij[walkerlistj[nw]]/nwalker;
+                jnw = walkerlistj[nw];
+                elocalavg += elij[jnw] * thetaij[(jnw,jnw)]/nwalker;
+                thetaavg += thetaij[(jnw,jnw)]/nwalker;
             end
             for it in 1:niter
                 elocaltot[it] += elocalavg * prodweightlist[it];
-                wlocaltot[it] += prodweightlist[it];
+                wlocaltot[it] += prodweightlist[it] * thetaavg;
             end
 
             for nw in 1:nwalker
@@ -1066,11 +1069,11 @@ function do_SRDMC_acc2(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             for nw in 1:nreconfig
                 problistj[nw] = sum(weightlistreconf[1:nw]);
             end
-            ##newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
-            ##walkerlistj[idbig] = newwalkerlistj;
+            newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
+            walkerlistj[idbig] = newwalkerlistj;
 
-            ### Save j in i
-            ##walkerlisti = walkerlistj;
+            # Save j in i
+            walkerlisti = walkerlistj;
 
             #for nw in 1:nwalker
             #    fullwalkerlist[walkerlistj[nw],istep] += wlocal;
@@ -1134,7 +1137,249 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
             #end
 
             # Perform MC step
-            j = doSwap_acc(rand(),j,pijsummed,pijidsSorted);
+            jnew = doSwap_acc(rand(),j,pijsummed,pijidsSorted);
+            j = jnew;
+
+            # Calculate new weights
+            wlocal = weightij[(j,j)];
+            for it in 1:niter-1
+                idxdel = (((istep-1 + (niter-it)) % niter) + 1);
+                #idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
+                #idxnew = (((istep) % niter) + 0);
+                wprev = weightlist[idxdel];
+                #wnew  = weightlist[idxnew];
+                wnew  = wlocal;
+                prodweightlist[it] = prodweightlist[it] * wnew/wprev;
+            end
+            idxnew = (((istep-1) % niter) + 1);
+            wprev = weightlist[idxnew];
+            weightlist[idxnew] = wlocal;
+            prodweightlist[niter] = prodweightlist[niter] * wlocal/wprev;
+
+            # Save current state
+            i = j;
+        end
+
+        # Fill global list
+        for it in 1:niter
+            localenergy[irun,it] = elocaltot[it]/wlocaltot[it];
+            #localenergy[irun,it] = prodweightlist_per_i[it]/nsteps;
+        end
+    end
+    return(localenergy);
+end
+#+end_src
+
+#+name: branching
+#+begin_src julia :tangle srdmc.jl
+function branch_dmc(problist,   walkerlist,nwalker)
+    # Make new walker list
+    newwalkerlist = zeros(Int64,nwalker);
+    for nw in 1:nwalker
+        newwalkerlist[nw] = walkerlist[searchsortedfirst(problist, rand())];
+    end
+    return(newwalkerlist);
+end
+#+end_src
+
+***** Plots
+
+#+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
+niter2 = Int32(niter/2);
+meanenerlist = zeros(niter2,2);
+varenerlist = zeros(niter2,2);
+localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
+localenergy = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
+idx=1
+for it in 1:2:niter-1
+    meanenerlist[idx,1] = (mean(localenergy[:,it])+mean(localenergy[:,it+1]))/2;
+    varenerlist[idx,1] = (var(localenergy[:,it])+var(localenergy[:,it+1]))/2;
+    meanenerlist[idx,2] = mean(localenergypdmc[:,it]);
+    varenerlist[idx,2] = var(localenergypdmc[:,it]);
+    idx +=1;
+end
+plt=plot(collect(1:niter2),meanenerlist,
+         xlabel=L"n",
+         ylabel=L"E_0",
+#        lw=2,
+         xlims = (0,niter2),
+#        ylims = (0.38,0.4),
+         framestyle=:box,
+         guidefontsize=10,
+         legend=false,
+#        legendfontsize=6,
+         thickness_scaling=1.5,
+         grid=:none,
+#        marker=true,
+#        markersize=2,
+         size=(400,600),
+         ribbon=varenerlist,
+         label=["SRDMC" "PDMCacc" ""]
+         )
+hline!([-0.79],line=:dash,label=nothing)
+hline!([-0.21432],line=:dash,label=nothing)
+hline!([0.381966],line=:dash,label=nothing)
+hline!([-2.366],line=:dash,label=nothing)
+figpath="/tmp/";
+savefig(plt,figpath*"fig1.pdf")
+#+end_src
+
+
+** FCIQMC
+
+*** Description
+
+
+*** Algorithm
+
+**** Code
+
+***** FCIQMC quantities
+
+#+name: calc_local_energy_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function getEL_fciqmc(ham, vi, i)
+    if(vi[i]==0.0)
+        return typemax(Float64)
+    else
+        return ((ham*vi)[i]/vi[i])
+    end
+end
+#+end_src
+
+#+name: calc_local_kenergy_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function getKE_fciqmc(ham, vi, i)
+    return(getEL_fciqmc(ham,vi,i) - ham[i,i])
+end
+#+end_src
+
+#+name: calc_trap_time
+#+begin_src julia :tangle srdmc.jl
+function getTraptime_fciqmc(ham, vi, i)
+    TL = getKE_fciqmc(ham, vi, i);
+    return(-1.0/TL)
+end
+#+end_src
+
+#+name: prepare_pij_list_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function getPij_fciqmc(ham, tau, i, j, vec)
+    pij = getPij(ham,tau,i,j,vec);
+    pii = getPij(ham,tau,i,i,vec);
+    return(pij/(1-pii))
+end
+#+end_src
+
+#+name: getweights_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function getWeightij_fciqmc(ham, tau, ET, i, j,ELi)
+    if (i==j)
+        TLi = ELi - ham[i,i];
+        return(TLi/(ET - ham[i,i]))
+    else
+        return(1.0);
+    end
+end
+#+end_src
+
+#+name: prepare_pij_lists_with_weights_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function prepare_pij_wij_fciqmc(ham, vec, ET, tau)
+    dim = size(ham)[1];
+    pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    countswaps = zeros(dim);
+    elij = Dict();
+    weightij = Dict();
+    thetaij = Dict();
+    for i in 1:dim
+        for j in 1:dim
+            EL = getEL_fciqmc(ham, vec, i)
+            EL1 = EL;
+            θi = getTraptime_fciqmc(ham, vec, i)
+            w12 = getWeightij_fciqmc(ham, tau, ET, i, j, EL);
+            if i == j
+                p12 = 0.0
+            else
+                p12 = getPij_fciqmc(ham, tau, i, j, vec)
+            end
+            if(i==j)
+                elij[i] = EL * θi;
+            end
+            pij[i][j] = p12;
+            weightij[(i,j)] = w12
+            thetaij[(i,j)] = θi;
+        end
+    end
+    # take sum of Pij
+    pijidsSorted = zeros(Int,dim,dim);
+    pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    for i in 1:dim
+        map(x->pijsummed[i][collect(keys(pij[i]))[x]]=foldl(+,collect(values(pij[i]))[1:x]),1:length(pij[i]))
+        pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
+    end
+    return(pijsummed,pijidsSorted, elij, weightij,thetaij)
+end
+#+end_src
+
+#+name: swap_states
+#+begin_src julia :tangle srdmc.jl
+function doSwap_fciqmc(randval, j, pij, pijids)
+   return(pijids[j,searchsortedfirst(collect(values(pij[j])),randval)])
+end
+#+end_src
+
+***** FCIQMC algo
+
+#+name: pdmc_algo_fciqmc
+#+begin_src julia :tangle srdmc.jl
+function do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps)
+    pijsummed, pijidsSorted, elij, weightij, thetaij = prepare_pij_wij_fciqmc(ham, vec0, ET, tau);
+    localenergy = zeros(nruns, niter);
+    weightlist = zeros(niter);
+    prodweightlist = zeros(niter);
+    #prodweightlist_per_i = zeros(niter);
+    idweightlist = zeros(niter);
+    for irun in 1:nruns
+        # Initialize lists
+        elocaltot = zeros(niter);
+        wlocaltot = zeros(niter);
+        j = 1;
+        i = j;
+        wlocal = 1.0;
+
+        # Prepare weight list
+        for it in 1:niter
+            # Perform MC step
+            j = doSwap_fciqmc(rand(),j,pijsummed,pijidsSorted);
+
+            # Initialize weightlist
+            weightlist[it] = weightij[(j,j)];
+
+            # Save current state
+            i = j;
+        end
+
+        # Prepare prodweightlist
+        for it in niter:-1:1
+            prodweightlist[niter-it+1] = wlocal * weightlist[it];
+            wlocal = wlocal * weightlist[it];
+        end
+
+        # Do PDMC
+        for istep in 1:nsteps
+            # Calculate elocal and wlocal
+            for it in 1:niter
+               elocaltot[it] += elij[j] * prodweightlist[it] * thetaij[(j,j)];
+               wlocaltot[it] += prodweightlist[it] * thetaij[(j,j)];
+            end
+            #if(j == 5)
+            #    prodweightlist_per_i .+= prodweightlist;
+            #end
+
+            # Perform MC step
+            jnew = doSwap_fciqmc(rand(),j,pijsummed,pijidsSorted);
+            j = jnew;
 
             # Calculate new weights
             wlocal = weightij[(j,j)];
@@ -1184,7 +1429,7 @@ end
 meanenerlist = zeros(niter,2);
 varenerlist = zeros(niter,2);
 localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
-localenergy = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
+localenergy = do_FCIQMC(ham, vec0, ET, tau, nruns, niter, nsteps);
 for it in 1:niter
     meanenerlist[it,1] = mean(localenergy[:,it]);
     varenerlist[it,1] = var(localenergy[:,it]);
@@ -1209,6 +1454,7 @@ plt=plot(collect(1:niter),meanenerlist,
          ribbon=varenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
+hline!([-0.99],line=:dash,label=nothing)
 hline!([-0.21432],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)

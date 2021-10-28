@@ -1244,19 +1244,19 @@ includet("srdmc.jl")
 nu0 = 0;
 nu1 = 1;
 nu2 = 2;
-ζ=0.01;
+ζ=0.5;
 stepsize = 5;
 t=1;
 # Trial energy
 ET = 0.01;
 # Taux d'acceptation > 99%
-tau = 0.01;
+tau = 0.05;
 c0= 1.001/sqrt(3);
 c1= 0.90001/sqrt(3);
 c2= 0.80/sqrt(3);
-nsteps = 10;#1*8192;
-nruns = 1;#100;
-nwalkermax = 4096;
+nsteps = 750;
+nruns = 4;
+nwalkermax = 10^7;
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0, c1, c2];
 vec0 = vec0/norm(vec0);
@@ -1391,7 +1391,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     walkersigni = zeros(nwalkermax);
     walkersignj = zeros(nwalkermax);
     walkersignmerge = zeros(nwalkermax);
-    doStep = false;
+    ETsave = ET;
     for irun in 1:nruns
         # Initialize lists
         elocaltot = 0.0;
@@ -1401,6 +1401,8 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
         nwalkerold = 1;
         walkerlisti[nwalkerold] = i;
         walkersigni[nwalkerold] = 1.0;
+        doStep = false;
+        ET = ETsave;
 
         # Do PDMC
         for istep in 1:nsteps
@@ -1505,14 +1507,15 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
 
             # Step 4 - Change ET
 
-            if nwalkerold > 100000
+            if nwalkerold > 1000
                 doStep = true
             end
             if istep % stepsize == 0 && doStep
                 # Change ET
-                println("istep = ",istep, " Nw = ",Nw," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                if istep % (stepsize * 10) == 0
+                    println("istep = ",istep, " Nw = ",Nw," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                end
                 ET = adjustS_fciqmc(ET,ζ,tau,Nw,Nwold,stepsize);
-                println("ET calc = ",ET);
                 pijsummed, pijidsSorted = prepare_psij_pdi_fciqmc(ham, vec0, ET, tau);
             end
 
@@ -1530,7 +1533,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
         n2 = size(findall(x->abs(abs(x)-3.0) < 1e-4,walkerlistj))[1];
         println(n0," ",n1," ",n2);
         println(walkersigni[1],"\t",walkersigni[n0+1],"\t",walkersigni[n0+n1+1]);
-        localenergy[irun] = ham[1,2] * n1/n0 + ham[1,3] * n2/n0;
+        localenergy[irun] = ET;
     end
     return(localenergy, totalwalkerlist, etlist);
 end

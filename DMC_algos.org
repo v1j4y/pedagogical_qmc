@@ -1257,12 +1257,49 @@ c2= 0.80/sqrt(3);
 nsteps = 750;
 nruns = 4;
 nwalkermax = 10^7;
-ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
+ham=[nu0  t -t;  t nu1 -t; -t -t nu2]*1.0;
 vec0 = [c0, c1, c2];
 vec0 = vec0/norm(vec0);
 e_exact,vec_exact = eigen(ham)
 #+end_src
 
+#+name: var6x6
+#+begin_src julia
+using Plots
+using LaTeXStrings
+using DataStructures
+using Statistics
+using LinearAlgebra
+using Profile
+using Revise
+using DelimitedFiles
+
+includet("srdmc.jl")
+# Vars
+t=1;
+# Trial energy
+ET = 0.01;
+ζ=0.5;
+stepsize = 5;
+tau = 0.1;
+nu0 = 1+0;
+nu1 = 2+0;
+nu2 = 3+0;
+nu3 = 4+0;
+nu4 = 5+0;
+nu5 = 6+0;
+# Taux d'acceptation > 99%
+ham=[nu0 -t   -t   0   0    0;
+     -t   nu1 -t  -t  -t   -t;
+     -t   -t  nu2 -t  -t   -t;
+      0   -t  -t  nu3 -t   -t;
+      0   -t  -t  -t  nu4  -t;
+      0   -t  -t  -t  -t  nu5;]*1.0;
+nsteps = 750;
+nruns = 1;
+nwalkermax = 10^7;
+e_exact,vec_exact = eigen(ham)
+#+end_src
 
 *** Description
 
@@ -1382,6 +1419,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     pijsummed, pijidsSorted = prepare_psij_pdi_fciqmc(ham, vec0, ET, tau);
     println(pijsummed);
     println(pijidsSorted);
+    dimH = size(ham)[1];
     localenergy = zeros(nruns);
     totalwalkerlist = zeros(nsteps);
     etlist = zeros(nsteps);
@@ -1391,6 +1429,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     walkersigni = zeros(nwalkermax);
     walkersignj = zeros(nwalkermax);
     walkersignmerge = zeros(nwalkermax);
+    numlist = zeros(Int32,dimH);
     ETsave = ET;
     for irun in 1:nruns
         # Initialize lists
@@ -1528,11 +1567,14 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
 
         # Fill global list
         #localenergy[irun] = ET;
-        n0 = size(findall(x->abs(abs(x)-1.0) < 1e-4,walkerlistj))[1];
-        n1 = size(findall(x->abs(abs(x)-2.0) < 1e-4,walkerlistj))[1];
-        n2 = size(findall(x->abs(abs(x)-3.0) < 1e-4,walkerlistj))[1];
-        println(n0," ",n1," ",n2);
-        println(walkersigni[1],"\t",walkersigni[n0+1],"\t",walkersigni[n0+n1+1]);
+
+        println(" ---- DONE ---- ",irun," ", nwalkerold,"\n");
+        totnum = 0;
+        for ni in 1:dimH
+            numlist[ni] = size(findall(x->abs(abs(x)-ni*1.0) < 1e-4,walkerlisti[1:nwalkerold]))[1];
+            totnum = totnum + numlist[ni];
+            println(ni," - ",numlist[ni]," - ",walkersigni[totnum-1]);
+        end
         localenergy[irun] = ET;
     end
     return(localenergy, totalwalkerlist, etlist);
@@ -1542,9 +1584,9 @@ end
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
-meanenerlist = zeros(niter,2);
-varenerlist = zeros(niter,2);
 localenergy, totalwalkerlist, etlist = do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
+meanenerlist = mean(localenergy)
+varenerlist = var(localenergy)
 plt=plot(collect(1:nsteps),etlist,
          xlabel=L"n",
          ylabel=L"E_0",

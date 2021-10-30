@@ -1280,8 +1280,8 @@ t=1;
 # Trial energy
 ET = 0.01;
 ζ=0.5;
+tau = 0.20;
 stepsize = 5;
-tau = 0.1;
 nu0 = 1+0;
 nu1 = 2+0;
 nu2 = 3+0;
@@ -1289,13 +1289,13 @@ nu3 = 4+0;
 nu4 = 5+0;
 nu5 = 6+0;
 # Taux d'acceptation > 99%
-ham=[nu0 -t   -t   0   0    0;
-     -t   nu1 -t  -t  -t   -t;
+ham=[nu0  t   -t   0   0    0;
+      t   nu1 -t  -t  -t   -t;
      -t   -t  nu2 -t  -t   -t;
       0   -t  -t  nu3 -t   -t;
       0   -t  -t  -t  nu4  -t;
       0   -t  -t  -t  -t  nu5;]*1.0;
-nsteps = 750;
+nsteps = 2;#750;
 nruns = 1;
 nwalkermax = 10^7;
 e_exact,vec_exact = eigen(ham)
@@ -1430,6 +1430,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     walkersignj = zeros(nwalkermax);
     walkersignmerge = zeros(nwalkermax);
     numlist = zeros(Int32,dimH);
+    sgnwalkers = zeros(Int32,dimH);
     ETsave = ET;
     for irun in 1:nruns
         # Initialize lists
@@ -1438,6 +1439,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
         i = j;
         nwalker = 0;
         nwalkerold = 1;
+        nwspawn = 0;
         walkerlisti[nwalkerold] = i;
         walkersigni[nwalkerold] = 1.0;
         doStep = false;
@@ -1456,22 +1458,24 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
                 jnew = doSwap_fciqmc(rand(),i,pijsummed,pijidsSorted);
                 pspawnj, sgnj = getspawnij_fciqmc(ham, tau, i, jnew, vec0, sgni);
                 if 1.0 > pspawnj > 0.0
-                if pspawnj > rand()
-                    nwalker = nwalker + 1;
-                    walkerlistj[nwalker] = jnew;
-                    walkersignj[nwalker] = sgnj;
-                end
+                    if pspawnj > rand() || nwalkerold == 1
+                        nwalker = nwalker + 1;
+                        walkerlistj[nwalker] = jnew;
+                        walkersignj[nwalker] = sgnj;
+                    end
                 elseif pspawnj > 1.0
-                    walkerlistj[nwalker+1:nwalker+Int32(pspawnj)] .= jnew;
-                    walkersignj[nwalker+1:nwalker+Int32(pspawnj)] .= sgnj;
-                    nwalker = nwalker + Int32(pspawnj);
-                    if (pspawnj-Int32(pspawnj)) > rand()
+                    walkerlistj[nwalker+1:nwalker+floor(Int32,pspawnj)] .= jnew;
+                    walkersignj[nwalker+1:nwalker+floor(Int32,pspawnj)] .= sgnj;
+                    nwalker = nwalker + floor(Int32,pspawnj);
+                    if (pspawnj-floor(Int32,pspawnj)) > rand()
                         nwalker = nwalker + 1;
                         walkerlistj[nwalker] = jnew;
                         walkersignj[nwalker] = sgnj;
                     end
                 end
             end
+
+            nwspawn = nwalker;
 
             #println("new walkers\n",nwalker,"\t",walkerlistj[1:nwalker]);
 
@@ -1528,14 +1532,15 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
                 Nposi = size(findall(x->x==nwi,mergewalkerlist))[1];
                 Nnegi = size(findall(x->x==-nwi,mergewalkerlist))[1];
                 sgni = Nposi - Nnegi;
-                nnew = abs(sgni);
-                sgni = sgni/nnew;
-                #println("nwi\n",nwi,"\n",Nposi,"\t",Nnegi,"\n nwalker ",nwalkerold);
-                if nnew > 0
+                if sgni > 0
+                    nnew = abs(sgni);
+                    #println("nwi -- ",nwi," -- ",Nposi,"\t",Nnegi," --  sgni ",sgni);
+                    sgni = sgni/nnew;
                     walkerlisti[nwalkerold+1:nwalkerold+nnew] .= nwi;
                     walkersigni[nwalkerold+1:nwalkerold+nnew] .= sgni;
                     nwalkerold = nwalkerold + nnew;
                 end
+                sgnwalkers[Int32(nwi)] = sgni;
             end
 
             #println("new num \n",nwalkerold);
@@ -1552,7 +1557,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
             if istep % stepsize == 0 && doStep
                 # Change ET
                 if istep % (stepsize * 10) == 0
-                    println("istep = ",istep, " Nw = ",Nw," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                    println("istep = ",istep, " Nw = ",nwspawn," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
                 end
                 ET = adjustS_fciqmc(ET,ζ,tau,Nw,Nwold,stepsize);
                 pijsummed, pijidsSorted = prepare_psij_pdi_fciqmc(ham, vec0, ET, tau);
@@ -1573,7 +1578,7 @@ function do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
         for ni in 1:dimH
             numlist[ni] = size(findall(x->abs(abs(x)-ni*1.0) < 1e-4,walkerlisti[1:nwalkerold]))[1];
             totnum = totnum + numlist[ni];
-            println(ni," - ",numlist[ni]," - ",walkersigni[totnum-1]);
+            println(ni," - ",numlist[ni]," - ",sgnwalkers[ni]);
         end
         localenergy[irun] = ET;
     end
@@ -1584,6 +1589,8 @@ end
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
+tau = 0.21;
+nsteps=10;
 localenergy, totalwalkerlist, etlist = do_FCIQMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
 meanenerlist = mean(localenergy)
 varenerlist = var(localenergy)
@@ -1605,7 +1612,7 @@ plt=plot(collect(1:nsteps),etlist,
 #        ribbon=varenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
-hline!([-0.99],line=:dash,label=nothing)
+hline!([-0.41],line=:dash,label=nothing)
 hline!([-0.21432],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)

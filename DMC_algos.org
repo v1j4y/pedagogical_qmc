@@ -1281,7 +1281,11 @@ t=1;
 ET = 0.01;
 ζ=0.5;
 tau = 0.08;
+tau = 0.08;
+nsteps=750;
 stepsize = 5;
+nruns = 1;
+nwalkermax = 10^7;
 nu0 = 1+0;
 nu1 = 2+0;
 nu2 = 3+0;
@@ -1296,9 +1300,6 @@ ham=[nu0  t   -t   0   0    0;
       0   -t  -t  -t  nu4  -t;
       0   -t  -t  -t  -t  nu5;]*1.0;
 ham = ham - Diagonal(ones(6)*ham[1,1]);
-nsteps = 2;#750;
-nruns = 1;
-nwalkermax = 10^7;
 e_exact,vec_exact = eigen(ham)
 #+end_src
 
@@ -1588,12 +1589,13 @@ function do_FCIQMC(ham, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
 
         totnum = 0;
         energyproj = 0.0;
+        sgnwalkers = sgnwalkers .* sgnwalkers[1];
         for ni in 1:dimH
             #numlist[ni] = size(findall(x->abs(abs(x)-ni*1.0) < 1e-4,walkerlisti[1:nwalkerold]))[1];
             numlist[ni] = size(findall(x->Int32(abs(x))==ni,walkerlisti[1:nwalkerold]))[1];
             totnum = totnum + numlist[ni];
             println(ni," | ",numlist[ni]," | ",sgnwalkers[ni]);
-            energyproj = energyproj + ham[1,ni] * numlist[ni]/numlist[1];
+            energyproj = energyproj + ham[1,ni] * sgnwalkers[ni]*numlist[ni]/numlist[1];
         end
         println(" ---- DONE ---- ",irun," ", nwalkerold," -- E = \n",energyproj);
         localenergy[irun] = ET;
@@ -1605,12 +1607,10 @@ end
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
-tau = 0.08;
-nsteps=750;
 localenergy, totalwalkerlist, etlist = do_FCIQMC(ham, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
 meanenerlist = mean(localenergy)
 varenerlist = var(localenergy)
-plt=plot(collect(1:nsteps),totalwalkerlist,
+plt=plot(collect(1:nsteps),etlist,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
@@ -1628,7 +1628,7 @@ plt=plot(collect(1:nsteps),totalwalkerlist,
 #        ribbon=varenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
-hline!([-1.41],line=:dash,label=nothing)
+hline!([-1.413],line=:dash,label=nothing)
 hline!([-0.21432],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)

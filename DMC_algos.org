@@ -89,7 +89,7 @@ includet("srdmc.jl")
 # Vars
 nu0 = 0;
 nu1 = 1;
-nu2 = 10;
+nu2 = 5;
 t=1;
 # Trial energy
 ET = -0.1
@@ -99,7 +99,7 @@ c0= 1.001/sqrt(3);
 c1= 0.90001/sqrt(3);
 c2= 0.80/sqrt(3);
 nsteps = 1*8192;
-niter = 40;
+niter = 80;
 nruns = 100;
 nwalker = 20;
 ham=[nu0 -t -t; -t nu1 -t; -t -t nu2]*1.0;
@@ -145,7 +145,7 @@ ham=[nu0 -t   -t  -t  -t   -t;
      -t   -t  -t  nu3 -t   -t;
      -t   -t  -t  -t  nu4  -t;
      -t   -t  -t  -t  -t  nu5;]*1.0;
-vec0 = [c0, c1, c2, c3, c4, c5];
+vec0 = [-c0, c1, c2, c3, c4, c5];
 vec0 = vec0/norm(vec0);
 nsteps = 2048;#4*8192;
 niter = 100;
@@ -633,12 +633,12 @@ for it in 1:niter
     meanenerlist[it] = mean(localenergy[:,it]);
     varenerlist[it] = var(localenergy[:,it]);
 end
-plt=plot(collect(1:niter),meanenerlist,
+plt=plot!(collect(1:niter),meanenerlist,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
          xlims = (0,niter),
-         ylims = (-2.0,-1.4),
+#        ylims = (-2.0,-1.4),
          framestyle=:box,
          guidefontsize=10,
          legendfontsize=6,
@@ -649,7 +649,7 @@ plt=plot(collect(1:niter),meanenerlist,
          size=(400,600),
          ribbon=varenerlist
          )
-hline!([-1.97],line=:dash)
+hline!([-1.61],line=:dash)
 #+end_src
 
 
@@ -940,11 +940,11 @@ function prepare_pij_wij_acc(ham, vec, ET, tau)
                 p12 = getPij_acc(ham, tau, i, j, vec)
             end
             if(i==j)
-                elij[i] = EL * θi;
+                elij[i] = EL;
             end
             pij[i][j] = p12;
             weightij[(i,j)] = w12
-            thetaij[(i,j)] = θi;
+            thetaij[(i,i)] = θi;
         end
     end
     # take sum of Pij
@@ -1093,10 +1093,12 @@ end
 #+name: pdmc_algo_acc
 #+begin_src julia :tangle srdmc.jl
 function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
+    dimH = size(ham)[1];
     pijsummed, pijidsSorted, elij, weightij, thetaij = prepare_pij_wij_acc(ham, vec0, ET, tau);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(niter);
     prodweightlist = zeros(niter);
+    countimes = zeros(Int32,dimH);
     #prodweightlist_per_i = zeros(niter);
     idweightlist = zeros(niter);
     for irun in 1:nruns
@@ -1120,7 +1122,8 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
         end
 
         # Prepare prodweightlist
-        for it in niter:-1:1
+        prodweightlist[1]=1.0;
+        for it in niter-1:-1:1
             prodweightlist[niter-it+1] = wlocal * weightlist[it];
             wlocal = wlocal * weightlist[it];
         end
@@ -1142,7 +1145,7 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
 
             # Calculate new weights
             wlocal = weightij[(j,j)];
-            for it in 1:niter-1
+            for it in 2:niter-1
                 idxdel = (((istep-1 + (niter-it)) % niter) + 1);
                 #idxnew = (((istep-1 + (niter-1 )) % niter) + 1);
                 #idxnew = (((istep) % niter) + 0);
@@ -1158,6 +1161,7 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
 
             # Save current state
             i = j;
+            countimes[j] += 1;
         end
 
         # Fill global list
@@ -1166,7 +1170,7 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
             #localenergy[irun,it] = prodweightlist_per_i[it]/nsteps;
         end
     end
-    return(localenergy);
+    return(localenergy,countimes);
 end
 #+end_src
 
@@ -1186,23 +1190,22 @@ end
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
 niter2 = Int32(niter/2);
-meanenerlist = zeros(niter2,2);
-varenerlist = zeros(niter2,2);
+meanenerlist = zeros(niter,2);
+varenerlist = zeros(niter,2);
 localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
-localenergy = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
+localenergy, countimes = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
 idx=1
-for it in 1:2:niter-1
-    meanenerlist[idx,1] = (mean(localenergy[:,it])+mean(localenergy[:,it+1]))/2;
-    varenerlist[idx,1] = (var(localenergy[:,it])+var(localenergy[:,it+1]))/2;
-    meanenerlist[idx,2] = mean(localenergypdmc[:,it]);
-    varenerlist[idx,2] = var(localenergypdmc[:,it]);
-    idx +=1;
+for it in 1:niter
+    meanenerlist[it,1] = mean(localenergy[:,it]);
+    varenerlist[it,1] = var(localenergy[:,it]);
+    meanenerlist[it,2] = mean(localenergypdmc[:,it]);
+    varenerlist[it,2] = var(localenergypdmc[:,it]);
 end
-plt=plot(collect(1:niter2),meanenerlist,
+plt=plot(collect(1:niter),meanenerlist,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
-         xlims = (0,niter2),
+         xlims = (0,niter),
 #        ylims = (0.38,0.4),
          framestyle=:box,
          guidefontsize=10,
@@ -1216,7 +1219,7 @@ plt=plot(collect(1:niter2),meanenerlist,
          ribbon=varenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
-hline!([-0.79],line=:dash,label=nothing)
+hline!([-0.7939],line=:dash,label=nothing)
 hline!([-0.21432],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)
@@ -1287,15 +1290,15 @@ stepsize = 5;
 nruns = 1;
 nwalkermax = 10^7;
 nu0 = 1+0;
-nu1 = 2+0;
+nu1 = 1+0.5;
 nu2 = 3+0;
-nu3 = 4+0;
-nu4 = 5+0;
-nu5 = 6+0;
+nu3 = 4+9;
+nu4 = 5+9;
+nu5 = 6+9;
 # Taux d'acceptation > 99%
-ham=[nu0  t   -t   0   0    0;
+ham=[nu0  t    t   0   0    0;
       t   nu1 -t  -t  -t   -t;
-     -t   -t  nu2 -t  -t   -t;
+      t   -t  nu2 -t  -t   -t;
       0   -t  -t  nu3 -t   -t;
       0   -t  -t  -t  nu4  -t;
       0   -t  -t  -t  -t  nu5;]*1.0;
@@ -1610,7 +1613,7 @@ end
 localenergy, totalwalkerlist, etlist = do_FCIQMC(ham, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
 meanenerlist = mean(localenergy)
 varenerlist = var(localenergy)
-plt=plot(collect(1:nsteps),etlist,
+plt=plot(collect(1:nsteps),totalwalkerlist,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
@@ -1628,7 +1631,7 @@ plt=plot(collect(1:nsteps),etlist,
 #        ribbon=varenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
-hline!([-1.413],line=:dash,label=nothing)
+hline!([-1.4135],line=:dash,label=nothing)
 hline!([-0.21432],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)

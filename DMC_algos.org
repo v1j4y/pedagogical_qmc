@@ -123,7 +123,7 @@ includet("srdmc.jl")
 # Vars
 t=1;
 # Trial energy
-ET = 2.0
+ET = -0.01
 # Taux d'acceptation > 99%
 tau = 0.10;
 nu0 = 1+0;
@@ -145,7 +145,7 @@ ham=[nu0 -t   -t  -t  -t   -t;
      -t   -t  -t  nu3 -t   -t;
      -t   -t  -t  -t  nu4  -t;
      -t   -t  -t  -t  -t  nu5;]*1.0;
-vec0 = [-c0, c1, c2, c3, c4, c5];
+vec0 = [c0, c1, c2, c3, c4, c5];
 vec0 = vec0/norm(vec0);
 nsteps = 2048;#4*8192;
 niter = 100;
@@ -603,6 +603,12 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
 
             # Save current state
             i = j;
+
+            # Adjust energy
+            if istep % 200 == 0
+                ET = sum(elocaltot[2:Int(niter/2)])/sum(wlocaltot[2:Int(niter/2)]);
+                pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
+            end
         end
 
         # Fill global list
@@ -1227,7 +1233,7 @@ plt=plot(collect(1:niter),meanenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
 hline!([-0.7939],line=:dash,label=nothing)
-hline!([-0.21432],line=:dash,label=nothing)
+hline!([-1.97562],line=:dash,label=nothing)
 hline!([0.381966],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)
 figpath="/tmp/";

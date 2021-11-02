@@ -664,20 +664,78 @@ hline!([-1.61],line=:dash)
 
 ** Diffusion Monte Carlo
 
-*** Algorithm
+*** Algorithm DMC
 
 **** Code DMC
 
 ***** DMC Special functions
 
+#+name: prepare_pij_lists_with_weights
+#+begin_src julia :tangle srdmc.jl
+function prepare_pij_wij_dmc(ham, vec, ET, tau)
+    dim = size(ham)[1];
+    pij = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    countswaps = zeros(dim);
+    elij = Dict();
+    weightij = Dict();
+    for i in 1:dim
+        sump12 = 0.0
+        map(j->if i!=j
+                sump12 = sump12+1/(dim-1);
+                end,collect(1:dim));
+        for j in 1:dim
+            EL = getEL(ham, vec, i)
+            EL1 = EL;
+            w12 = getWeightij(ham, tau, ET, i, j, EL);
+            #p12 = getPij(ham, tau, i, j, vec)
+            p12 = 1/(dim-1)
+            if(i==j)
+                elij[i] = EL;
+                p12 = 0.0;
+            end
+            pij[i][j] = p12/sump12;
+            weightij[(i,j)] = w12
+        end
+    end
+    # take sum of Pij
+    pijidsSorted = zeros(Int,dim,dim);
+    pijsummed = SortedDict{Any, Any}[SortedDict() for i = 1:dim];
+    for i in 1:dim
+        map(x->pijsummed[i][collect(keys(pij[i]))[x]]=foldl(+,collect(values(pij[i]))[1:x]),1:length(pij[i]))
+        pijidsSorted[i,1:dim] = collect(keys(pijsummed[i]))
+    end
+    return(pijsummed,pijidsSorted, elij, weightij)
+end
+#+end_src
+
+#+name: prepare_pij_list_dmc
+#+begin_src julia :tangle srdmc.jl
+function getPij_dmc(ham, vec, ET, tau, pijsummed)
+    dim = size(ham)[1];
+    pij = zeros(dim,dim);
+    for k in 1:dim
+        ELk = getEL(ham,vec,k);
+        for l in 1:dim
+            if k!=l
+                #pij[k,l] = tau*getWeightij(ham,tau,ET,k,l,ELk)/pijsummed[k][l];
+                pij[k,l] = getWeightij(ham,tau,ET,k,l,ELk);
+            end
+        end
+    end
+    return(pij);
+end
+#+end_src
+
 #+name: prepare_pij_list
 #+begin_src julia :tangle srdmc.jl
-function getPij_diag(ham, vec, ET, tau)
+function getPii_diag(ham, vec, ET, tau)
     dim = size(ham)[1];
     pijdiag = zeros(dim);
     idmat = Matrix(1.0*I,dim,dim);
     for k in 1:dim
-        pijdiag[k] = (1 - tau*(ham[k,k] - ET));
+        #ELk = getEL(ham,vec,k);
+        #pijdiag[k] = getWeightij(ham,tau,ET,k,k,ELk)
+        pijdiag[k] = tau * (ham[k,k] - ET);
     end
     return(pijdiag);
 end
@@ -700,8 +758,9 @@ end
 #+begin_src julia :tangle srdmc.jl
 function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     dimH = size(ham)[1];
-    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
-    pijdiag = getPij_diag(ham, vec0, ET, tau);
+    pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_dmc(ham, vec0, ET, tau);
+    pijdiag = getPii_diag(ham, vec0, ET, tau);
+    pijfull = getPij_dmc(ham, vec0, ET, tau, pijsummed);
     localenergy = zeros(nruns);
     walkerlisti = zeros(Int64,nwalkermax);
     walkerlistj = zeros(Int64,nwalkermax);
@@ -736,25 +795,56 @@ function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
             for nw in 1:nwalkerold
                 i = walkerlisti[nw];
                 jnew = doSwap(rand(),i,pijsummed,pijidsSorted);
-                nwalker += 1;
-                walkerlistj[nwalker] = jnew
-                weightlistj[nwalker] = weightij[(i,j)];
+                probspawn = pijfull[i,jnew] * 1/4;
+                #if intprobspawn > 0
+                #    walkerlistj[nwalker+1:nwalker+intprobspawn] .= jnew;
+                #    nwalker = nwalker + intprobspawn;
+                #    if rand() < realprobspawn
+                #        nwalker = nwalker + 1;
+                #        walkerlistj[nwalker] = jnew;
+                #    end
+                #else
+                if rand() < probspawn
+                    nwalker = nwalker + 1;
+                    walkerlistj[nwalker] = jnew;
+                end
+                #end
             end
+            nwspawn = nwalker;
+            #println("nspawn=",nwspawn)
 
-            # Branching
+            ## Branching
 
-            nnewwalkers = branch_dmc(weightlistj, walkerlistj, nwalker);
+            #nwalker, nnewwalkers = branch_dmc(weightlistj, walkerlistj, nwalker);
 
             # Diagonal death/cloning
 
+            nwdead = 0
+            nwcloned = 0
             for nw in 1:nwalkerold
-                if rand() > pijdiag[walkerlisti[nw]]
-                    nwalker += 1;
-                    walkerlistj[nwalker] = walkerlisti[nw];
-                else
-                    walkerlisti[nw] *= -1.0;
+                pidiag = pijdiag[walkerlisti[nw]];
+                #intpidiag = Int(floor(pidiag)) + rand();
+                realpidiag = pidiag;
+                #if intpidiag > 0
+                #    walkerlistj[nwalker+1:nwalker+intpidiag] .= walkerlisti[nw];
+                #    nwalker = nwalker + intpidiag;
+                #    nwcloned = nwcloned + intpidiag;
+                #    if rand() > realpidiag
+                #        nwalker = nwalker + 1;
+                #        nwcloned = nwcloned + 1;
+                #        walkerlistj[nwalker] = walkerlisti[nw];
+                #    end
+                #else
+                if realpidiag > 0
+                    if rand() < abs(realpidiag)
+                        nwdead = nwdead + 1;
+                        walkerlisti[nw] *= -1.0;
+                    end
                 end
+                #end
             end
+            #println("\tncloned=",nwcloned)
+            #println("ndead=",nwdead)
 
             # Prune dead walkers
 
@@ -762,26 +852,35 @@ function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
             nwalkerold = size(walkerlisti_nodead,1);
             walkerlisti[1:nwalkerold] = walkerlisti_nodead;
 
-
             # Merge
-            walkerlisti = vcat((walkerlisti[1:nwalkerold],walkerlistj[1:nwalker])...);
-            nwalkerold = size(walkerlisti,1);
+            walkerlist_new = vcat((walkerlisti[1:nwalkerold],walkerlistj[1:nwalker])...);
+            nwalkerold = size(walkerlist_new,1);
+            walkerlisti[1:nwalkerold] = walkerlist_new;
 
             Nw = nwalkerold;
+            #println("--- nw = ",Nw," --- ",nwalker)
 
             # Vary ET
 
-            if nwalkerold > 1000
+            if nwalkerold > 100
                 doStep = true
             end
             if istep % stepsize == 0 && doStep
+                #println(" ndead= ",nwdead," ncloned= ",nwcloned," nspawn= ",nwspawn);
                 # Change ET
-                if istep % (stepsize * 10) == 0
-                    println("istep = ",istep, " Nw = ",Nw," Nwold = ",nwalkerold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                if istep % (stepsize * 2) == 0
+                    println("istep = ",istep, " Nw = ",Nw," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
                 end
                 ET = adjustS_dmc(ET,ζ,tau,Nw,Nwold,stepsize);
-                pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
-                pijdiag = getPij_diag(ham, vec0, ET, tau);
+                pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_dmc(ham, vec0, ET, tau);
+                pijdiag = getPii_diag(ham, vec0, ET, tau);
+                pijfull = getPij_dmc(ham, vec0, ET, tau, pijsummed);
+                for idx in 1:dimH
+                    numlist[idx] = count(x->x==idx,walkerlisti[1:nwalkerold])
+                end
+                #println(pijdiag .- 1)
+                #println(pijfull)
+                println(numlist)
             end
 
             nwalker = 0;
@@ -793,6 +892,8 @@ function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     return(localenergy);
 end
 #+end_src
+
+#+RESULTS: dmc_algo
 
 ***** DMC branching
 
@@ -821,10 +922,11 @@ function branch_dmc(weightlist, walkerlist, nwalker)
             end
         end
     end
-    return(nnewwalkers);
+    return(nwalker, nnewwalkers);
 end
 #+end_src
 
+*** Algorithm SRMC
 **** Code SRDMC
 
 #+name: srdmc_algo
@@ -959,6 +1061,7 @@ function branch_srdmc(problist,   walkerlist,nwalker)
 end
 #+end_src
 
+*** Algorithm Poisson PDMC
 **** Code Poison
 
 ***** Integrated quantities
@@ -1272,6 +1375,7 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
 end
 #+end_src
 
+*** Plots
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
@@ -1630,6 +1734,7 @@ function do_FCIQMC(ham, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
             #println("unique\n",uniquewalkers);
 
             nwalkerold = 0;
+            maxnnew = 0;
             for nwi in uniquewalkers
                 Nposi = size(findall(x->x==nwi,mergewalkerlist))[1];
                 Nnegi = size(findall(x->x==-nwi,mergewalkerlist))[1];
@@ -1665,6 +1770,7 @@ function do_FCIQMC(ham, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
                 # Change ET
                 if istep % (stepsize * 10) == 0
                     println("istep = ",istep, " Nw = ",nwspawn," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                    println("maxnnew= ",maxnnew)
                 end
                 ET = adjustS_fciqmc(ET,ζ,tau,Nw,Nwold,stepsize);
                 pijsummed, pijidsSorted = prepare_psij_pdi_fciqmc(ham, ET, tau);

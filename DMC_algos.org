@@ -1110,7 +1110,8 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
         wlocal = 1.0;
 
         # Prepare weight list
-        for it in 1:niter
+        weightlist[1] = 1.0;
+        for it in 2:niter
             # Perform MC step
             j = doSwap_acc(rand(),j,pijsummed,pijidsSorted);
 
@@ -1162,6 +1163,12 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
             # Save current state
             i = j;
             countimes[j] += 1;
+
+            # Adjust energy
+            if istep % 200 == 0
+                ET = sum(elocaltot[2:Int(niter/2)])/sum(wlocaltot[2:Int(niter/2)]);
+                pijsummed, pijidsSorted, elij, weightij, thetaij = prepare_pij_wij_acc(ham, vec0, ET, tau);
+            end
         end
 
         # Fill global list

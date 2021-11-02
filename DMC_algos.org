@@ -129,9 +129,9 @@ tau = 0.10;
 nu0 = 1+0;
 nu1 = 2+0;
 nu2 = 3+0;
-nu3 = 4+0;
-nu4 = 5+0;
-nu5 = 6+0;
+nu3 = 4+9;
+nu4 = 5+9;
+nu5 = 6+9;
 tau = 0.01;
 c0= 1.00000
 c1= 1.10000
@@ -539,7 +539,9 @@ var(localenergy[:,3])
 #+name: pdmc_algo
 #+begin_src julia :tangle srdmc.jl
 function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
+    dimH = size(ham)[1];
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
+    countimes = zeros(Int32,dimH);
     localenergy = zeros(nruns, niter);
     weightlist = zeros(niter);
     prodweightlist = zeros(niter);
@@ -603,6 +605,7 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
 
             # Save current state
             i = j;
+            countimes[j] += 1;
 
             # Adjust energy
             if istep % 200 == 0
@@ -617,7 +620,7 @@ function do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps)
             #localenergy[irun,it] = prodweightlist_per_i[it]/nsteps;
         end
     end
-    return(localenergy);
+    return(localenergy, countimes);
 end
 #+end_src
 
@@ -663,88 +666,125 @@ hline!([-1.61],line=:dash)
 
 *** Algorithm
 
-**** Code SRDMC
+**** Code DMC
+
+***** DMC Special functions
+
+#+name: prepare_pij_list
+#+begin_src julia :tangle srdmc.jl
+function getPij_diag(ham, vec, ET, tau)
+    dim = size(ham)[1];
+    pijdiag = zeros(dim);
+    idmat = Matrix(1.0*I,dim,dim);
+    for k in 1:dim
+        pijdiag[k] = (1 - tau*(ham[k,k] - ET));
+    end
+    return(pijdiag);
+end
+#+end_src
+
+#+name: adjustS_states_dmc
+#+begin_src julia :tangle srdmc.jl
+function adjustS_dmc(Sold,ζ,tau,Nw,Nwold,stepsize)
+    if Nw == 0
+        return(Sold + 0.0001)
+    end
+    Snew = Sold - log(Nw/Nwold) * ζ / (stepsize * tau);
+    return(Snew)
+end
+#+end_src
+
+***** DMC Algo
 
 #+name: dmc_algo
 #+begin_src julia :tangle srdmc.jl
-function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
+function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
+    dimH = size(ham)[1];
     pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
-    println(weightij);
-    println(pijsummed);
-    println(pijidsSorted);
+    pijdiag = getPij_diag(ham, vec0, ET, tau);
     localenergy = zeros(nruns);
-    walkerlisti = zeros(Int64,nwalker);
-    walkerlistj = zeros(Int64,nwalker);
-    newwalkerlistj = zeros(Int64,nwalker);
-    weightlistscaled = zeros(Float64,nwalker);
-    weightperwalker = zeros(Float64,nwalker);
-    problistj = zeros(Float64,nwalker);
+    walkerlisti = zeros(Int64,nwalkermax);
+    walkerlistj = zeros(Int64,nwalkermax);
+    weightlistj = zeros(Float64,nwalkermax);
     nreconfmean = 0.0;
     nreconftot = 0;
+    numlist = zeros(Int32,dimH);
+    ETsave=ET;
     for irun in 1:nruns
         # Initialize lists
-        weightlist = zeros(Float64,nwalker);
         j = 1;
         i = j;
-        walkerlistj .= 1;
-        walkerlisti .= 1;
+        nwalker = 0;
+        nwalkerold = 1;
+        walkerlisti[1:nwalkerold] .= j;
         wlocal = 1.0;
-
-        # Prepare weight list
-        # Perform MC step for each walker
-        for nw in 1:nwalker
-            j = walkerlistj[nw];
-            i = walkerlisti[nw];
-            walkerlistj[nw] = doSwap(rand(),j,pijsummed,pijidsSorted);
-            j = walkerlistj[nw];
-
-            # Initialize weightlist
-            weightlist[nw] = weightij[(i,j)];
-
-            # Save current state
-            walkerlisti[nw] = walkerlistj[nw];
-        end
+        doStep = false;
+        ET = ETsave;
 
         # Do DMC
         elocaltot = 0.0;
         for istep in 1:nsteps
+
+            Nwold = nwalkerold;
+
             # Calculate elocal and wlocal
-            for nw in 1:nwalker
-                elocaltot += elij[walkerlistj[nw]]/nwalker;
+            for nw in 1:nwalkerold
+                elocaltot += elij[walkerlisti[nw]]/nwalkerold;
             end
 
             # Perform MC step for each walker
-            for nw in 1:nwalker
-                j = walkerlistj[nw];
+            for nw in 1:nwalkerold
                 i = walkerlisti[nw];
-                walkerlistj[nw] = doSwap(rand(),j,pijsummed,pijidsSorted);
-                j = walkerlistj[nw];
-                weightlist[nw] = weightij[(i,j)];
-
-                # Save current state
-                walkerlisti[nw] = walkerlistj[nw];
+                jnew = doSwap(rand(),i,pijsummed,pijidsSorted);
+                nwalker += 1;
+                walkerlistj[nwalker] = jnew
+                weightlistj[nwalker] = weightij[(i,j)];
             end
 
             # Branching
 
-            # Calculate probability list
+            nnewwalkers = branch_dmc(weightlistj, walkerlistj, nwalker);
 
-            # Get ids of the big weights
-            idbig = findall(x->x>=1.0,weightlist);
-            nreconfig = length(idbig);
+            # Diagonal death/cloning
 
-            totweightlist = sum(weightlist[idbig]);
-            weightlistscaled = (weightlist[idbig])/totweightlist;
-            problistj[1] = weightlistscaled[1];
-            for nw in 2:nreconfig
-                problistj[nw] = problistj[nw-1] + weightlistscaled[nw];
+            for nw in 1:nwalkerold
+                if rand() > pijdiag[walkerlisti[nw]]
+                    nwalker += 1;
+                    walkerlistj[nwalker] = walkerlisti[nw];
+                else
+                    walkerlisti[nw] *= -1.0;
+                end
             end
-            newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
-            walkerlistj[idbig] = newwalkerlistj;
 
-            # Save j in i
-            walkerlisti = walkerlistj;
+            # Prune dead walkers
 
+            walkerlisti_nodead = walkerlisti[findall(x->x>0,walkerlisti[1:nwalkerold])];
+            nwalkerold = size(walkerlisti_nodead,1);
+            walkerlisti[1:nwalkerold] = walkerlisti_nodead;
+
+
+            # Merge
+            walkerlisti = vcat((walkerlisti[1:nwalkerold],walkerlistj[1:nwalker])...);
+            nwalkerold = size(walkerlisti,1);
+
+            Nw = nwalkerold;
+
+            # Vary ET
+
+            if nwalkerold > 1000
+                doStep = true
+            end
+            if istep % stepsize == 0 && doStep
+                # Change ET
+                if istep % (stepsize * 10) == 0
+                    println("istep = ",istep, " Nw = ",Nw," Nwold = ",nwalkerold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                end
+                ET = adjustS_dmc(ET,ζ,tau,Nw,Nwold,stepsize);
+                pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij(ham, vec0, ET, tau);
+                pijdiag = getPij_diag(ham, vec0, ET, tau);
+            end
+
+            nwalker = 0;
         end
 
         # Fill global list
@@ -753,6 +793,39 @@ function do_DMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
     return(localenergy);
 end
 #+end_src
+
+***** DMC branching
+
+#+name: branching_dmc
+#+begin_src julia :tangle srdmc.jl
+function branch_dmc(weightlist, walkerlist, nwalker)
+    # Make new walker list
+    nnewwalkers = 0;
+    for nw in 1:nwalker
+        intweight = Int(floor(weightlist[nw]));
+        restweight = weightlist[nw] - intweight;
+        if intweight < 1.0
+            if rand() < restweight
+                nwalker += 1;
+                nnewwalkers += 1;
+                walkerlist[nwalker] = walkerlist[nw];
+            end
+        else
+            walkerlist[nwalker+1:nwalker+intweight] .= walkerlist[nw];
+            nwalker += intweight;
+            nnewwalkers += intweight;
+            if rand() < restweight
+                nwalker += 1;
+                nnewwalkers += 1;
+                walkerlist[nwalker] = walkerlist[nw];
+            end
+        end
+    end
+    return(nnewwalkers);
+end
+#+end_src
+
+**** Code SRDMC
 
 #+name: srdmc_algo
 #+begin_src julia :tangle srdmc.jl
@@ -853,7 +926,7 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             for nw in 1:nreconfig
                 problistj[nw] = sum(weightlistreconf[1:nw]);
             end
-            newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
+            newwalkerlistj = branch_srdmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
             walkerlistj[idbig] = newwalkerlistj;
 
             # Save j in i
@@ -871,6 +944,18 @@ function do_SRDMC(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
         end
     end
     return(localenergy);
+end
+#+end_src
+
+#+name: branching
+#+begin_src julia :tangle srdmc.jl
+function branch_srdmc(problist,   walkerlist,nwalker)
+    # Make new walker list
+    newwalkerlist = zeros(Int64,nwalker);
+    for nw in 1:nwalker
+        newwalkerlist[nw] = walkerlist[searchsortedfirst(problist, rand())];
+    end
+    return(newwalkerlist);
 end
 #+end_src
 
@@ -971,7 +1056,7 @@ function doSwap_acc(randval, j, pij, pijids)
 end
 #+end_src
 
-***** SRDMC poisson algo
+***** PDMC poisson algo
 
 #+name: srdmc_algo_acc2
 #+begin_src julia :tangle srdmc.jl
@@ -1075,7 +1160,7 @@ function do_SRDMC_acc2(ham, vec0, ET, tau, nruns, niter, nsteps, nwalker)
             for nw in 1:nreconfig
                 problistj[nw] = sum(weightlistreconf[1:nw]);
             end
-            newwalkerlistj = branch_dmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
+            newwalkerlistj = branch_srdmc(problistj[1:nreconfig], walkerlistj[idbig], nreconfig);
             walkerlistj[idbig] = newwalkerlistj;
 
             # Save j in i
@@ -1187,25 +1272,17 @@ function do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps)
 end
 #+end_src
 
-#+name: branching
-#+begin_src julia :tangle srdmc.jl
-function branch_dmc(problist,   walkerlist,nwalker)
-    # Make new walker list
-    newwalkerlist = zeros(Int64,nwalker);
-    for nw in 1:nwalker
-        newwalkerlist[nw] = walkerlist[searchsortedfirst(problist, rand())];
-    end
-    return(newwalkerlist);
-end
-#+end_src
-
 ***** Plots
 
 #+BEGIN_SRC jupyter-julia :session j1 :results results :eval noexport :exports results #:tangle pdmc.jl
+ζ=0.5;
+stepsize = 5;
+nwalkermax = 10^7;
 niter2 = Int32(niter/2);
 meanenerlist = zeros(niter,2);
 varenerlist = zeros(niter,2);
-localenergypdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
+localenergypdmc, countimespdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
+localenergy, = do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
 localenergy, countimes = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
 idx=1
 for it in 1:niter
@@ -1234,7 +1311,7 @@ plt=plot(collect(1:niter),meanenerlist,
          )
 hline!([-0.7939],line=:dash,label=nothing)
 hline!([-1.97562],line=:dash,label=nothing)
-hline!([0.381966],line=:dash,label=nothing)
+hline!([-0.877058],line=:dash,label=nothing)
 hline!([-2.366],line=:dash,label=nothing)
 figpath="/tmp/";
 savefig(plt,figpath*"fig1.pdf")

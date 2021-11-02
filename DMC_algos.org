@@ -765,6 +765,8 @@ function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
     walkerlisti = zeros(Int64,nwalkermax);
     walkerlistj = zeros(Int64,nwalkermax);
     weightlistj = zeros(Float64,nwalkermax);
+    totalwalkerlist = zeros(Int32,nsteps);
+    etlist = zeros(Float64,nsteps);
     nreconfmean = 0.0;
     nreconftot = 0;
     numlist = zeros(Int32,dimH);
@@ -862,14 +864,15 @@ function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
 
             # Vary ET
 
-            if nwalkerold > 100
+            if nwalkerold > 1000
                 doStep = true
             end
             if istep % stepsize == 0 && doStep
                 #println(" ndead= ",nwdead," ncloned= ",nwcloned," nspawn= ",nwspawn);
                 # Change ET
-                if istep % (stepsize * 2) == 0
+                if istep % (stepsize * 5) == 0
                     println("istep = ",istep, " Nw = ",Nw," Nwold = ",Nwold," ET = ",ET," ζ= ",ζ," stepsize= ",stepsize," tau= ",tau);
+                    println(numlist)
                 end
                 ET = adjustS_dmc(ET,ζ,tau,Nw,Nwold,stepsize);
                 pijsummed, pijidsSorted, elij, weightij = prepare_pij_wij_dmc(ham, vec0, ET, tau);
@@ -880,20 +883,21 @@ function do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax)
                 end
                 #println(pijdiag .- 1)
                 #println(pijfull)
-                println(numlist)
             end
 
             nwalker = 0;
+
+            # Save data
+            totalwalkerlist[istep] = Nw;
+            etlist[istep] = ET;
         end
 
         # Fill global list
         localenergy[irun] = elocaltot/nsteps;
     end
-    return(localenergy);
+    return(localenergy,totalwalkerlist,etlist);
 end
 #+end_src
-
-#+RESULTS: dmc_algo
 
 ***** DMC branching
 
@@ -1386,7 +1390,7 @@ niter2 = Int32(niter/2);
 meanenerlist = zeros(niter,2);
 varenerlist = zeros(niter,2);
 localenergypdmc, countimespdmc = do_PDMC(ham, vec0, ET, tau, nruns, niter, nsteps);
-localenergy, = do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
+localenergy,totalwalkerlist,etlist = do_DMC(ham, vec0, ET, tau, stepsize, ζ, nruns, nsteps, nwalkermax);
 localenergy, countimes = do_PDMC_acc(ham, vec0, ET, tau, nruns, niter, nsteps);
 idx=1
 for it in 1:niter
@@ -1395,11 +1399,11 @@ for it in 1:niter
     meanenerlist[it,2] = mean(localenergypdmc[:,it]);
     varenerlist[it,2] = var(localenergypdmc[:,it]);
 end
-plt=plot(collect(1:niter),meanenerlist,
+plt=plot(collect(1:nsteps),etlist,
          xlabel=L"n",
          ylabel=L"E_0",
 #        lw=2,
-         xlims = (0,niter),
+         xlims = (0,nsteps),
 #        ylims = (0.38,0.4),
          framestyle=:box,
          guidefontsize=10,
@@ -1410,7 +1414,7 @@ plt=plot(collect(1:niter),meanenerlist,
 #        marker=true,
 #        markersize=2,
          size=(400,600),
-         ribbon=varenerlist,
+#        ribbon=varenerlist,
          label=["SRDMC" "PDMCacc" ""]
          )
 hline!([-0.7939],line=:dash,label=nothing)
